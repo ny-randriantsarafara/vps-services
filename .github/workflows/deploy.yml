@@ -33,25 +33,28 @@ jobs:
       - name: Validate kong.yml
         run: yamllint -d relaxed volumes/kong/kong.yml && echo "kong.yml OK"
 
-      - name: Check VPS_ENV has all required keys
+      - name: Check repo vars have all required .env keys
         env:
-          VPS_ENV: ${{ vars.VPS_ENV }}
+          REPO_VARS_JSON: ${{ toJSON(vars) }}
         run: |
           missing=0
           while IFS= read -r line; do
             [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
             key="${line%%=*}"
             [[ -z "$key" ]] && continue
-            if ! echo "$VPS_ENV" | grep -q "^${key}="; then
-              echo "Missing secret key: $key"
+
+            if ! jq -e --arg key "$key" 'has($key)' >/dev/null <<<"$REPO_VARS_JSON"; then
+              echo "Missing repository variable: $key"
               missing=1
             fi
           done < .env.example
+
           if [[ $missing -eq 1 ]]; then
-            echo "VPS_ENV is missing required keys. Update the GitHub secret."
+            echo "Repository variables are missing required .env keys."
             exit 1
           fi
-          echo "All required keys present in VPS_ENV"
+
+          echo "All required .env keys are present in repository variables"
 
   deploy:
     name: Deploy to VPS
@@ -106,14 +109,21 @@ jobs:
             ./ \
             "$VPS_USER@$VPS_HOST":/home/deploy/infra/
 
-      - name: Write .env on VPS from secret
+      - name: Write .env on VPS from repository variables
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_ENV: ${{ vars.VPS_ENV }}
+          REPO_VARS_JSON: ${{ toJSON(vars) }}
         run: |
-          printf '%s' "$VPS_ENV" | ssh "$VPS_USER@$VPS_HOST" \
-            "cat > /home/deploy/infra/.env.tmp && mv /home/deploy/infra/.env.tmp /home/deploy/infra/.env"
+          tmp_env_file=$(mktemp)
+
+          jq -r 'to_entries | .[] | "\(.key)=\(.value)"' <<<"$REPO_VARS_JSON" > "$tmp_env_file"
+
+          ssh "$VPS_USER@$VPS_HOST" \
+            "cat > /home/deploy/infra/.env.tmp && mv /home/deploy/infra/.env.tmp /home/deploy/infra/.env" \
+            < "$tmp_env_file"
+
+          rm -f "$tmp_env_file"
 
       - name: Restart Docker stack
         env:
@@ -171,24 +181,24 @@ jobs:
             exit 1
           '
 
-      - name: Rollback on health check failure
-        if: failure() && steps.healthcheck.outcome == 'failure'
-        env:
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-        run: |
-          echo "Rolling back to previous configuration..."
-          ssh "$VPS_USER@$VPS_HOST" '
-            set -e
-            cd /home/deploy/infra
+      # - name: Rollback on health check failure
+      #   if: failure() && steps.healthcheck.outcome == 'failure'
+      #   env:
+      #     VPS_USER: ${{ secrets.VPS_USER }}
+      #     VPS_HOST: ${{ secrets.VPS_HOST }}
+      #   run: |
+      #     echo "Rolling back to previous configuration..."
+      #     ssh "$VPS_USER@$VPS_HOST" '
+      #       set -e
+      #       cd /home/deploy/infra
 
-            [ -f docker-compose.yml.backup ] && cp docker-compose.yml.backup docker-compose.yml
-            [ -f caddy/Caddyfile.backup ] && cp caddy/Caddyfile.backup caddy/Caddyfile
-            [ -f .env.backup ] && cp .env.backup .env
+      #       [ -f docker-compose.yml.backup ] && cp docker-compose.yml.backup docker-compose.yml
+      #       [ -f caddy/Caddyfile.backup ] && cp caddy/Caddyfile.backup caddy/Caddyfile
+      #       [ -f .env.backup ] && cp .env.backup .env
 
-            docker compose --profile supabase up -d --remove-orphans --pull missing
+      #       docker compose --profile supabase up -d --remove-orphans --pull missing
 
-            echo "Rollback complete"
-          '
-          echo "ROLLBACK PERFORMED — check VPS logs with: docker compose --profile supabase logs"
-          exit 1
+      #       echo "Rollback complete"
+      #     '
+      #     echo "ROLLBACK PERFORMED — check VPS logs with: docker compose --profile supabase logs"
+      #     exit 1
