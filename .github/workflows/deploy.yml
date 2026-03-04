@@ -1,0 +1,182 @@
+name: Validate & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: |
+          # Create a dummy .env so docker compose config can resolve ${VAR} references
+          # without needing real secrets. We only care about YAML syntax here.
+          grep -E '^[A-Z_]+=?' .env.example | sed 's/=.*/=placeholder/' > .env
+          docker compose config --quiet
+          rm .env
+
+      - name: Install Caddy
+        run: |
+          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+          sudo apt-get update
+          sudo apt-get install caddy
+
+      - name: Validate Caddyfile
+        run: caddy fmt --overwrite caddy/Caddyfile && echo "Caddyfile OK"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Validate kong.yml
+        run: yamllint -d relaxed volumes/kong/kong.yml && echo "kong.yml OK"
+
+      - name: Check VPS_ENV has all required keys
+        env:
+          VPS_ENV: ${{ secrets.VPS_ENV }}
+        run: |
+          missing=0
+          while IFS= read -r line; do
+            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+            key="${line%%=*}"
+            [[ -z "$key" ]] && continue
+            if ! echo "$VPS_ENV" | grep -q "^${key}="; then
+              echo "Missing secret key: $key"
+              missing=1
+            fi
+          done < .env.example
+          if [[ $missing -eq 1 ]]; then
+            echo "VPS_ENV is missing required keys. Update the GitHub secret."
+            exit 1
+          fi
+          echo "All required keys present in VPS_ENV"
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Backup current configs on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -e
+            INFRA=/home/deploy/infra
+            cd "$INFRA"
+            [ -f docker-compose.yml ] && cp docker-compose.yml docker-compose.yml.backup || true
+            [ -f caddy/Caddyfile ] && cp caddy/Caddyfile caddy/Caddyfile.backup || true
+            [ -f .env ] && cp .env .env.backup || true
+            echo "Backup complete"
+          '
+
+      - name: Install rsync
+        run: sudo apt-get install -y rsync
+
+      - name: Sync config files to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='.git/' \
+            --exclude='docs/' \
+            --exclude='*.backup' \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./ \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/home/deploy/infra/
+
+      - name: Write .env on VPS from secret
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cat > /home/deploy/infra/.env" <<< "${{ secrets.VPS_ENV }}"
+
+      - name: Restart Docker stack
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -e
+            cd /home/deploy/infra
+            docker compose --profile supabase up -d --remove-orphans --pull missing
+            echo "Stack restarted"
+          '
+
+      - name: Install Caddy config and reload
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -e
+            sudo cp /home/deploy/infra/caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
+            sudo systemctl reload caddy
+            echo "Caddy reloaded"
+          '
+
+      - name: Health check services
+        id: healthcheck
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -e
+            cd /home/deploy/infra
+            EXPECTED_SERVICES="postgres redis kong auth rest realtime storage meta studio"
+            MAX_RETRIES=10
+            SLEEP_SECS=10
+
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "Health check attempt $i/$MAX_RETRIES..."
+              ALL_HEALTHY=true
+
+              for svc in $EXPECTED_SERVICES; do
+                STATUS=$(docker compose --profile supabase ps "$svc" 2>/dev/null | tail -1)
+                if ! echo "$STATUS" | grep -qE "(healthy|Up)"; then
+                  echo "Service not healthy: $svc — $STATUS"
+                  ALL_HEALTHY=false
+                fi
+              done
+
+              if $ALL_HEALTHY; then
+                echo "All services healthy"
+                exit 0
+              fi
+
+              sleep $SLEEP_SECS
+            done
+
+            echo "Health check failed after $MAX_RETRIES attempts"
+            exit 1
+          '
+
+      - name: Rollback on health check failure
+        if: failure() && steps.healthcheck.outcome == 'failure'
+        run: |
+          echo "Rolling back to previous configuration..."
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -e
+            cd /home/deploy/infra
+
+            [ -f docker-compose.yml.backup ] && cp docker-compose.yml.backup docker-compose.yml
+            [ -f caddy/Caddyfile.backup ] && cp caddy/Caddyfile.backup caddy/Caddyfile
+            [ -f .env.backup ] && cp .env.backup .env
+
+            docker compose --profile supabase up -d --remove-orphans
+
+            sudo cp caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
+            sudo systemctl reload caddy
+
+            echo "Rollback complete"
+          '
+          echo "ROLLBACK PERFORMED — check VPS logs with: docker compose --profile supabase logs"
+          exit 1
