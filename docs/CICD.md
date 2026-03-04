@@ -17,6 +17,7 @@ usermod -aG docker deploy
 
 # Create deploy directory
 mkdir -p /home/deploy/infra/caddy
+mkdir -p /home/deploy/infra/volumes
 chown -R deploy:deploy /home/deploy/infra
 
 # Generate SSH keypair for GitHub Actions
@@ -27,21 +28,13 @@ chmod 600 /home/deploy/.ssh/authorized_keys
 
 # Print private key — paste into GitHub secret VPS_SSH_KEY
 cat /home/deploy/.ssh/github_actions
-
-# Narrow sudoers for Caddy only
-# Note: use /usr/bin/cp if `which cp` returns /usr/bin/cp on your distro
-echo 'deploy ALL=(ALL) NOPASSWD: /bin/cp /home/deploy/infra/caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile' \
-  >> /etc/sudoers.d/deploy-caddy
-echo 'deploy ALL=(ALL) NOPASSWD: /bin/systemctl reload caddy' \
-  >> /etc/sudoers.d/deploy-caddy
-chmod 440 /etc/sudoers.d/deploy-caddy
 ```
 
 ---
 
 ## GitHub secrets
 
-Set in: **Settings → Secrets and variables → Actions**
+Set in: **Settings > Secrets and variables > Actions**
 
 | Secret | Value |
 |--------|-------|
@@ -67,6 +60,10 @@ The workflow rsyncs these files to `/home/deploy/infra/` on the VPS:
 - `docker-compose.yml`
 - `caddy/Caddyfile`
 - `volumes/kong/kong.yml`
+- `volumes/db/*.sql`
+- `volumes/logs/vector.yml`
+- `volumes/pooler/pooler.exs`
+- `volumes/functions/`
 - `Makefile`
 
 It excludes: `.env`, `.git/`, `docs/`, `*.backup`
@@ -91,6 +88,5 @@ The `.env` file is written separately from the `VPS_ENV` secret (never committed
 | Error | Fix |
 |-------|-----|
 | SSH permission denied | Verify `VPS_SSH_KEY` matches `~/.ssh/authorized_keys` on VPS |
-| `sudo: /bin/cp: command not found` | Check `which cp` on VPS — update sudoers to `/usr/bin/cp` if needed |
 | Docker stack unhealthy | SSH to VPS, run `docker compose --profile supabase logs` |
 | Rollback triggered | Check previous `.backup` files and workflow logs for root cause |

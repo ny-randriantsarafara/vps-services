@@ -127,18 +127,6 @@ jobs:
             echo "Stack restarted"
           '
 
-      - name: Install Caddy config and reload
-        env:
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-        run: |
-          ssh "$VPS_USER@$VPS_HOST" '
-            set -e
-            sudo cp /home/deploy/infra/caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
-            sudo systemctl reload caddy
-            echo "Caddy reloaded"
-          '
-
       - name: Health check services
         id: healthcheck
         env:
@@ -148,8 +136,8 @@ jobs:
           ssh "$VPS_USER@$VPS_HOST" '
             set -e
             cd /home/deploy/infra
-            EXPECTED_SERVICES="postgres redis kong auth rest realtime storage meta studio"
-            MAX_RETRIES=10
+            EXPECTED_SERVICES="postgres redis kong auth rest realtime storage imgproxy meta functions studio analytics supavisor caddy"
+            MAX_RETRIES=15
             SLEEP_SECS=10
 
             for i in $(seq 1 $MAX_RETRIES); do
@@ -199,9 +187,6 @@ jobs:
             [ -f .env.backup ] && cp .env.backup .env
 
             docker compose --profile supabase up -d --remove-orphans --pull missing
-
-            sudo cp caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
-            sudo systemctl reload caddy
 
             echo "Rollback complete"
           '

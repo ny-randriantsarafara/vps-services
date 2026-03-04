@@ -1,7 +1,14 @@
 # Secrets
 .env
 
-# Docker local data (named volumes are managed by Docker daemon, not tracked here)
+# Postgres data (managed by Docker named volume, but gitignore the bind-mount path if used)
+volumes/db/data/
+
+# Storage uploads
+volumes/storage/
+
+# Snippets (runtime-generated)
+volumes/snippets/
 
 # OS
 .DS_Store

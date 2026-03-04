@@ -1,15 +1,17 @@
-_format_version: "1.1"
+_format_version: '2.1'
+_transform: true
 
 ###
 ### Consumers / Users
 ###
 consumers:
+  - username: DASHBOARD
   - username: anon
     keyauth_credentials:
-      - key: ${SUPABASE_ANON_KEY}
+      - key: $SUPABASE_ANON_KEY
   - username: service_role
     keyauth_credentials:
-      - key: ${SUPABASE_SERVICE_KEY}
+      - key: $SUPABASE_SERVICE_KEY
 
 ###
 ### Access Control List
@@ -19,6 +21,14 @@ acls:
     group: anon
   - consumer: service_role
     group: admin
+
+###
+### Dashboard credentials
+###
+basicauth_credentials:
+  - consumer: DASHBOARD
+    username: '$DASHBOARD_USERNAME'
+    password: '$DASHBOARD_PASSWORD'
 
 ###
 ### API Routes
@@ -43,28 +53,19 @@ services:
           - /auth/v1/callback
     plugins:
       - name: cors
-  - name: auth-v1-open-meta
-    url: http://auth:9999/
+  - name: auth-v1-open-authorize
+    url: http://auth:9999/authorize
     routes:
-      - name: auth-v1-open-meta
+      - name: auth-v1-open-authorize
         strip_path: true
         paths:
-          - /auth/v1/
+          - /auth/v1/authorize
     plugins:
       - name: cors
-      - name: key-auth
-        config:
-          hide_credentials: false
-      - name: acl
-        config:
-          hide_groups_header: true
-          allow:
-            - anon
-            - admin
 
-  ## Protected Auth routes
+  ## Secure Auth routes
   - name: auth-v1
-    _comment: "GoTrue: /auth/v1/* -> http://auth:9999/*"
+    _comment: 'GoTrue: /auth/v1/* -> http://auth:9999/*'
     url: http://auth:9999/
     routes:
       - name: auth-v1-all
@@ -80,12 +81,12 @@ services:
         config:
           hide_groups_header: true
           allow:
-            - anon
             - admin
+            - anon
 
-  ## REST API
+  ## Secure REST routes
   - name: rest-v1
-    _comment: "PostgREST: /rest/v1/* -> http://rest:3000/*"
+    _comment: 'PostgREST: /rest/v1/* -> http://rest:3000/*'
     url: http://rest:3000/
     routes:
       - name: rest-v1-all
@@ -101,15 +102,42 @@ services:
         config:
           hide_groups_header: true
           allow:
-            - anon
             - admin
+            - anon
 
-  ## Realtime
-  - name: realtime-v1
-    _comment: "Realtime: /realtime/v1/* -> http://realtime:4000/socket/*"
-    url: http://realtime:4000/socket/
+  ## Secure GraphQL routes
+  - name: graphql-v1
+    _comment: 'PostgREST: /graphql/v1/* -> http://rest:3000/rpc/graphql'
+    url: http://rest:3000/rpc/graphql
     routes:
-      - name: realtime-v1-all
+      - name: graphql-v1-all
+        strip_path: true
+        paths:
+          - /graphql/v1
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - Content-Profile:graphql_public
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## Secure Realtime routes
+  - name: realtime-v1-ws
+    _comment: 'Realtime: /realtime/v1/* -> ws://realtime:4000/socket/*'
+    url: http://realtime-dev.supabase-realtime:4000/socket
+    protocol: ws
+    routes:
+      - name: realtime-v1-ws
         strip_path: true
         paths:
           - /realtime/v1/
@@ -122,18 +150,17 @@ services:
         config:
           hide_groups_header: true
           allow:
-            - anon
             - admin
-
-  ## Storage
-  - name: storage-v1
-    _comment: "Storage: /storage/v1/* -> http://storage:5000/*"
-    url: http://storage:5000/
+            - anon
+  - name: realtime-v1-rest
+    _comment: 'Realtime: /realtime/v1/api/* -> http://realtime:4000/api/*'
+    url: http://realtime-dev.supabase-realtime:4000/api
+    protocol: http
     routes:
-      - name: storage-v1-all
+      - name: realtime-v1-rest
         strip_path: true
         paths:
-          - /storage/v1/
+          - /realtime/v1/api
     plugins:
       - name: cors
       - name: key-auth
@@ -143,12 +170,36 @@ services:
         config:
           hide_groups_header: true
           allow:
-            - anon
             - admin
+            - anon
 
-  ## Postgres Meta
+  ## Storage routes: the storage server manages its own auth
+  - name: storage-v1
+    _comment: 'Storage: /storage/v1/* -> http://storage:5000/*'
+    url: http://storage:5000/
+    routes:
+      - name: storage-v1-all
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
+
+  ## Edge Functions routes
+  - name: functions-v1
+    _comment: 'Edge Functions: /functions/v1/* -> http://functions:9000/*'
+    url: http://functions:9000/
+    routes:
+      - name: functions-v1-all
+        strip_path: true
+        paths:
+          - /functions/v1/
+    plugins:
+      - name: cors
+
+  ## Secure Database routes
   - name: meta
-    _comment: "pg-meta: /pg/* -> http://meta:8080/*"
+    _comment: 'pg-meta: /pg/* -> http://meta:8080/*'
     url: http://meta:8080/
     routes:
       - name: meta-all
@@ -164,3 +215,18 @@ services:
           hide_groups_header: true
           allow:
             - admin
+
+  ## Protected Dashboard — catch all remaining routes
+  - name: dashboard
+    _comment: 'Studio: /* -> http://studio:3000/*'
+    url: http://studio:3000/
+    routes:
+      - name: dashboard-all
+        strip_path: true
+        paths:
+          - /
+    plugins:
+      - name: cors
+      - name: basic-auth
+        config:
+          hide_credentials: true
