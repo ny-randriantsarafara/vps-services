@@ -1,23 +1,23 @@
 supabase.nyhasinavalona.com {
-    # Supabase API paths → Kong gateway
-    handle /rest/v1/* {
-        reverse_proxy localhost:8000
-    }
-    handle /auth/v1/* {
-        reverse_proxy localhost:8000
-    }
-    handle /storage/v1/* {
-        reverse_proxy localhost:8000
-    }
-    handle /realtime/v1/* {
-        reverse_proxy localhost:8000
-    }
-    handle /pg/* {
-        reverse_proxy localhost:8000
-    }
+	# Supabase API paths → Kong gateway
+	handle /rest/v1/* {
+		reverse_proxy localhost:8000
+	}
+	handle /auth/v1/* {
+		reverse_proxy localhost:8000
+	}
+	handle /storage/v1/* {
+		reverse_proxy localhost:8000
+	}
+	handle /realtime/v1/* {
+		reverse_proxy localhost:8000
+	}
+	handle /pg/* {
+		reverse_proxy localhost:8000
+	}
 
-    # Studio dashboard → everything else
-    handle {
-        reverse_proxy localhost:3000
-    }
+	# Studio dashboard → everything else
+	handle {
+		reverse_proxy localhost:3000
+	}
 }
