@@ -117,7 +117,7 @@ jobs:
           VPS_ENV: ${{ secrets.VPS_ENV }}
         run: |
           printf '%s' "$VPS_ENV" | ssh "$VPS_USER@$VPS_HOST" \
-            "cat > /home/deploy/infra/.env"
+            "cat > /home/deploy/infra/.env.tmp && mv /home/deploy/infra/.env.tmp /home/deploy/infra/.env"
 
       - name: Restart Docker stack
         env:
