@@ -1,6 +1,6 @@
 # CI/CD
 
-Deploys automatically on every push to `main`. The workflow validates all configs first, then deploys to the VPS over SSH. A rollback runs automatically if services fail health checks after deploy.
+Deploys automatically on every push to `main`. The workflow validates all configs first, then deploys to the VPS over SSH.
 
 Workflow file: `.github/workflows/deploy.yml`
 
@@ -32,9 +32,11 @@ cat /home/deploy/.ssh/github_actions
 
 ---
 
-## GitHub secrets
+## GitHub configuration
 
-Set in: **Settings > Secrets and variables > Actions**
+### Secrets
+
+Set in: **Settings > Secrets and variables > Actions > Secrets**
 
 | Secret | Value |
 |--------|-------|
@@ -42,13 +44,30 @@ Set in: **Settings > Secrets and variables > Actions**
 | `VPS_USER` | `deploy` |
 | `VPS_SSH_KEY` | Contents of `/home/deploy/.ssh/github_actions` (private key) |
 | `VPS_HOST_KEY` | Output of `ssh-keyscan -H <vps-host>` from a trusted network |
-| `VPS_ENV` | Full contents of the production `.env` file |
 
 `VPS_HOST_KEY` is obtained once from a trusted network to prevent MITM on deploys:
 
 ```bash
 ssh-keyscan -H your-vps-ip-or-hostname
 # Copy the full output as the secret value
+```
+
+### Repository variables
+
+Set in: **Settings > Secrets and variables > Actions > Variables**
+
+Every key from `.env.example` should exist as a repository variable. The deploy workflow assembles the `.env` file on the VPS from all repository variables at deploy time (using `toJSON(vars)`).
+
+To sync variables between your local `.env` and GitHub:
+
+```bash
+# Push local .env values to GitHub repository variables
+scripts/sync-env-to-gh.sh
+
+# Pull GitHub repository variables to local .env
+make sync-env
+# or directly:
+scripts/sync-env-from-gh.sh
 ```
 
 ---
@@ -59,6 +78,7 @@ The workflow rsyncs these files to `/home/deploy/infra/` on the VPS:
 
 - `docker-compose.yml`
 - `caddy/Caddyfile`
+- `scripts/`
 - `volumes/kong/kong.yml`
 - `volumes/db/*.sql`
 - `volumes/logs/vector.yml`
@@ -66,9 +86,20 @@ The workflow rsyncs these files to `/home/deploy/infra/` on the VPS:
 - `volumes/functions/`
 - `Makefile`
 
-It excludes: `.env`, `.git/`, `docs/`, `*.backup`
+It excludes: `.env`, `.env.*`, `.git/`, `docs/`, `*.backup`
 
-The `.env` file is written separately from the `VPS_ENV` secret (never committed to git).
+The `.env` file is assembled separately from repository variables (never committed to git). The write uses an atomic `tmp + mv` to prevent partial reads.
+
+---
+
+## Deploy pipeline
+
+1. **Validate** — `docker compose config`, `caddy fmt --diff`, `yamllint`
+2. **Backup** — copies current `docker-compose.yml`, `Caddyfile`, and `.env` to `.backup` files on the VPS
+3. **Rsync** — syncs config files to `/home/deploy/infra/`
+4. **Write .env** — assembles `.env` from repository variables via `jq`
+5. **Restart** — `docker compose --profile supabase up -d --remove-orphans --pull missing`
+6. **Health check** — polls all 14 services (postgres, redis, kong, auth, rest, realtime, storage, imgproxy, meta, functions, studio, analytics, supavisor, caddy) for up to 15 retries at 10s intervals
 
 ---
 
@@ -81,7 +112,6 @@ The `.env` file is written separately from the `VPS_ENV` secret (never committed
 | `docker compose config` fails | Check `.env.example` — a var without a default may fail dummy .env generation |
 | `caddy fmt` fails | Run `caddy fmt --diff caddy/Caddyfile` locally and fix the formatting |
 | `yamllint` fails | Fix YAML indentation in `volumes/kong/kong.yml` |
-| VPS_ENV key check fails | Add the missing key to the `VPS_ENV` GitHub secret |
 
 **deploy job fails**
 
@@ -89,4 +119,4 @@ The `.env` file is written separately from the `VPS_ENV` secret (never committed
 |-------|-----|
 | SSH permission denied | Verify `VPS_SSH_KEY` matches `~/.ssh/authorized_keys` on VPS |
 | Docker stack unhealthy | SSH to VPS, run `docker compose --profile supabase logs` |
-| Rollback triggered | Check previous `.backup` files and workflow logs for root cause |
+| Health check timeout | Check individual service logs: `docker logs supabase-<service>` |

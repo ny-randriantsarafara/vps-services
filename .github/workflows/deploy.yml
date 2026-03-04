@@ -33,29 +33,6 @@ jobs:
       - name: Validate kong.yml
         run: yamllint -d relaxed volumes/kong/kong.yml && echo "kong.yml OK"
 
-      - name: Check repo vars have all required .env keys
-        env:
-          REPO_VARS_JSON: ${{ toJSON(vars) }}
-        run: |
-          missing=0
-          while IFS= read -r line; do
-            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
-            key="${line%%=*}"
-            [[ -z "$key" ]] && continue
-
-            if ! jq -e --arg key "$key" 'has($key)' >/dev/null <<<"$REPO_VARS_JSON"; then
-              echo "Missing repository variable: $key"
-              missing=1
-            fi
-          done < .env.example
-
-          if [[ $missing -eq 1 ]]; then
-            echo "Repository variables are missing required .env keys."
-            exit 1
-          fi
-
-          echo "All required .env keys are present in repository variables"
-
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest

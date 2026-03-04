@@ -103,6 +103,9 @@ vps-services/
   Makefile                    — convenience targets
   caddy/
     Caddyfile                 — Caddy reverse proxy config
+  scripts/
+    sync-env-from-gh.sh       — pull GitHub repo variables to local .env
+    sync-env-to-gh.sh         — push local .env to GitHub repo variables
   volumes/
     kong/
       kong.yml                — Kong declarative routes + ACL
