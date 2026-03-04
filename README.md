@@ -74,6 +74,48 @@ Host vps
 
 Then just `ssh vps` keeps all tunnels open.
 
+## Public access (supabase.nyhasinavalona.com)
+
+Supabase Studio and the API are exposed publicly via Caddy at `https://supabase.nyhasinavalona.com`.
+
+**First-time setup:**
+
+1. Ensure DNS is configured: `supabase.nyhasinavalona.com` A record → VPS IP
+2. Ensure ports 80 and 443 are open in your VPS firewall
+3. Verify Caddy includes `/etc/caddy/conf.d/`:
+   ```bash
+   grep -r "conf.d" /etc/caddy/Caddyfile
+   ```
+   If not, either add `import conf.d/*` to your Caddyfile, or copy the config directly into `/etc/caddy/Caddyfile`.
+4. Install the config:
+   ```bash
+   make caddy-install
+   ```
+   Caddy will automatically provision a Let's Encrypt TLS certificate.
+
+5. Update `.env` on the VPS with production URLs, then restart the Supabase stack:
+   ```bash
+   # In .env:
+   SITE_URL=https://supabase.nyhasinavalona.com
+   API_EXTERNAL_URL=https://supabase.nyhasinavalona.com
+   SUPABASE_PUBLIC_URL=https://supabase.nyhasinavalona.com
+   ```
+   ```bash
+   make down && make up-all
+   ```
+
+**What is exposed:**
+
+| URL | Routes to |
+|-----|-----------|
+| `https://supabase.nyhasinavalona.com/` | Studio dashboard |
+| `https://supabase.nyhasinavalona.com/rest/v1/` | PostgREST API |
+| `https://supabase.nyhasinavalona.com/auth/v1/` | GoTrue Auth |
+| `https://supabase.nyhasinavalona.com/storage/v1/` | Storage API |
+| `https://supabase.nyhasinavalona.com/realtime/v1/` | Realtime (WebSocket) |
+
+**What stays tunnel-only:** Postgres (5432), Redis (6379).
+
 ## Connecting other apps to Postgres
 
 From inside the VPS (same Docker network):
