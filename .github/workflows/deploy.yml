@@ -10,7 +10,7 @@ jobs:
     name: Validate configs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Validate docker-compose.yml
         run: |
@@ -63,21 +63,26 @@ jobs:
     needs: validate
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd  # v0.9.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
       - name: Add VPS to known hosts
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
       - name: Backup current configs on VPS
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh "$VPS_USER@$VPS_HOST" '
             set -e
             INFRA=/home/deploy/infra
             cd "$INFRA"
@@ -91,6 +96,9 @@ jobs:
         run: sudo apt-get install -y rsync
 
       - name: Sync config files to VPS
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           rsync -avz --delete \
             --exclude='.env' \
@@ -98,18 +106,25 @@ jobs:
             --exclude='.git/' \
             --exclude='docs/' \
             --exclude='*.backup' \
-            -e "ssh -o StrictHostKeyChecking=no" \
+            -e "ssh" \
             ./ \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/home/deploy/infra/
+            "$VPS_USER@$VPS_HOST":/home/deploy/infra/
 
       - name: Write .env on VPS from secret
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_ENV: ${{ secrets.VPS_ENV }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "cat > /home/deploy/infra/.env" <<< "${{ secrets.VPS_ENV }}"
+          printf '%s' "$VPS_ENV" | ssh "$VPS_USER@$VPS_HOST" \
+            "cat > /home/deploy/infra/.env"
 
       - name: Restart Docker stack
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh "$VPS_USER@$VPS_HOST" '
             set -e
             cd /home/deploy/infra
             docker compose --profile supabase up -d --remove-orphans --pull missing
@@ -117,8 +132,11 @@ jobs:
           '
 
       - name: Install Caddy config and reload
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh "$VPS_USER@$VPS_HOST" '
             set -e
             sudo cp /home/deploy/infra/caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
             sudo systemctl reload caddy
@@ -127,8 +145,11 @@ jobs:
 
       - name: Health check services
         id: healthcheck
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh "$VPS_USER@$VPS_HOST" '
             set -e
             cd /home/deploy/infra
             EXPECTED_SERVICES="postgres redis kong auth rest realtime storage meta studio"
@@ -140,9 +161,10 @@ jobs:
               ALL_HEALTHY=true
 
               for svc in $EXPECTED_SERVICES; do
-                STATUS=$(docker compose --profile supabase ps "$svc" 2>/dev/null | tail -1)
-                if ! echo "$STATUS" | grep -qE "(healthy|Up)"; then
-                  echo "Service not healthy: $svc — $STATUS"
+                STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose --profile supabase ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "unknown")
+                HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$(docker compose --profile supabase ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "unknown")
+                if [[ "$STATE" != "running" ]] || [[ "$HEALTH" != "healthy" && "$HEALTH" != "none" ]]; then
+                  echo "Service not healthy: $svc — state: $STATE, health: $HEALTH"
                   ALL_HEALTHY=false
                 fi
               done
@@ -161,9 +183,12 @@ jobs:
 
       - name: Rollback on health check failure
         if: failure() && steps.healthcheck.outcome == 'failure'
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           echo "Rolling back to previous configuration..."
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh "$VPS_USER@$VPS_HOST" '
             set -e
             cd /home/deploy/infra
 
@@ -171,7 +196,7 @@ jobs:
             [ -f caddy/Caddyfile.backup ] && cp caddy/Caddyfile.backup caddy/Caddyfile
             [ -f .env.backup ] && cp .env.backup .env
 
-            docker compose --profile supabase up -d --remove-orphans
+            docker compose --profile supabase up -d --remove-orphans --pull missing
 
             sudo cp caddy/Caddyfile /etc/caddy/conf.d/supabase.caddyfile
             sudo systemctl reload caddy
