@@ -16,7 +16,7 @@ down: ## Stop all services
 restart: down up-all ## Restart everything
 
 logs: ## Follow logs for all running services
-	docker compose logs -f
+	docker compose --profile supabase logs -f
 
 ps: ## Show service status
 	docker compose --profile supabase ps

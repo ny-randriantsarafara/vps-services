@@ -1,9 +1,7 @@
 # Secrets
 .env
 
-# Docker local data
-volumes/db/data/
-volumes/storage/
+# Docker local data (named volumes are managed by Docker daemon, not tracked here)
 
 # OS
 .DS_Store
