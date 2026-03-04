@@ -55,3 +55,193 @@ services:
       timeout: 5s
       retries: 5
     command: redis-server --appendonly yes
+
+  ############################################################
+  # SUPABASE — start with: docker compose --profile supabase up -d
+  ############################################################
+
+  kong:
+    image: kong:2.8.1
+    restart: unless-stopped
+    profiles: [supabase]
+    ports:
+      - "127.0.0.1:${KONG_HTTP_PORT:-8000}:8000"
+      - "127.0.0.1:${KONG_HTTPS_PORT:-8443}:8443"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./volumes/kong/kong.yml:/var/lib/kong/kong.yml:ro
+    networks:
+      - vps-net
+    depends_on:
+      - auth
+      - rest
+
+  auth:
+    image: supabase/gotrue:v2.158.1
+    restart: unless-stopped
+    profiles: [supabase]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}?search_path=auth
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_MAILER_AUTOCONFIRM: ${GOTRUE_MAILER_AUTOCONFIRM:-true}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@example.com}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Supabase}
+      GOTRUE_MAILER_URLPATHS_INVITE: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/verify
+    networks:
+      - vps-net
+
+  rest:
+    image: postgrest/postgrest:v12.2.0
+    restart: unless-stopped
+    profiles: [supabase]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+    networks:
+      - vps-net
+    command: postgrest
+
+  realtime:
+    image: supabase/realtime:v2.34.47
+    restart: unless-stopped
+    profiles: [supabase]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      FLY_ALLOC_ID: fly123
+      FLY_APP_NAME: realtime
+      SECRET_KEY_BASE: UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq
+      ERL_AFLAGS: -proto_dist inet_tcp
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+      REDIS_URL: redis://redis:6379
+    networks:
+      - vps-net
+    command: >
+      sh -c "/app/bin/migrate && /app/bin/realtime eval 'Realtime.Release.seeds(Realtime.Repo)' && /app/bin/server"
+
+  storage:
+    image: supabase/storage-api:v1.11.13
+    restart: unless-stopped
+    profiles: [supabase]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}
+      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-52428800}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-file}
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
+    volumes:
+      - storage-data:/var/lib/storage
+    networks:
+      - vps-net
+
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    restart: unless-stopped
+    profiles: [supabase]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: postgres
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: ${POSTGRES_DB:-postgres}
+      PG_META_DB_USER: ${POSTGRES_USER:-postgres}
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - vps-net
+
+  studio:
+    image: supabase/studio:20241202-71911c6
+    restart: unless-stopped
+    profiles: [supabase]
+    ports:
+      - "127.0.0.1:${STUDIO_PORT:-3000}:3000"
+    depends_on:
+      - auth
+      - rest
+      - meta
+    environment:
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: "My Org"
+      DEFAULT_PROJECT_NAME: "VPS Services"
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      LOGFLARE_API_KEY: ""
+      LOGFLARE_URL: http://analytics:4000
+      NEXT_PUBLIC_ENABLE_LOGS: "true"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+    networks:
+      - vps-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/profile', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
