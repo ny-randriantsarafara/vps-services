@@ -72,10 +72,10 @@ jobs:
 
       - name: Add VPS to known hosts
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          echo "$VPS_HOST_KEY" >> ~/.ssh/known_hosts
 
       - name: Backup current configs on VPS
         env:
@@ -161,8 +161,14 @@ jobs:
               ALL_HEALTHY=true
 
               for svc in $EXPECTED_SERVICES; do
-                STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose --profile supabase ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "unknown")
-                HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$(docker compose --profile supabase ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "unknown")
+                CID=$(docker compose --profile supabase ps -q "$svc" 2>/dev/null)
+                if [[ -z "$CID" ]]; then
+                  echo "Service not found: $svc"
+                  ALL_HEALTHY=false
+                  continue
+                fi
+                STATE=$(docker inspect --format="{{.State.Status}}" "$CID" 2>/dev/null || echo "unknown")
+                HEALTH=$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" "$CID" 2>/dev/null || echo "unknown")
                 if [[ "$STATE" != "running" ]] || [[ "$HEALTH" != "healthy" && "$HEALTH" != "none" ]]; then
                   echo "Service not healthy: $svc — state: $STATE, health: $HEALTH"
                   ALL_HEALTHY=false
