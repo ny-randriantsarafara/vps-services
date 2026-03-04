@@ -14,11 +14,7 @@ jobs:
 
       - name: Validate docker-compose.yml
         run: |
-          # Create a dummy .env so docker compose config can resolve ${VAR} references
-          # without needing real secrets. We only care about YAML syntax here.
-          grep -E '^[A-Z_]+=?' .env.example | sed 's/=.*/=placeholder/' > .env
-          docker compose config --quiet
-          rm .env
+          docker compose --env-file .env.example config --quiet
 
       - name: Install Caddy
         run: |
@@ -39,7 +35,7 @@ jobs:
 
       - name: Check VPS_ENV has all required keys
         env:
-          VPS_ENV: ${{ secrets.VPS_ENV }}
+          VPS_ENV: ${{ vars.VPS_ENV }}
         run: |
           missing=0
           while IFS= read -r line; do
@@ -114,7 +110,7 @@ jobs:
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_ENV: ${{ secrets.VPS_ENV }}
+          VPS_ENV: ${{ vars.VPS_ENV }}
         run: |
           printf '%s' "$VPS_ENV" | ssh "$VPS_USER@$VPS_HOST" \
             "cat > /home/deploy/infra/.env.tmp && mv /home/deploy/infra/.env.tmp /home/deploy/infra/.env"

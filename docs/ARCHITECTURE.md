@@ -89,6 +89,10 @@ vps-services/
   volumes/
     kong/
       kong.yml            — Kong declarative routes + ACL
+  .github/
+    workflows/
+      deploy.yml          — CI/CD: validate + deploy to VPS
   docs/
     ARCHITECTURE.md       — this file
+    CICD.md               — CI/CD setup and troubleshooting
 ```
