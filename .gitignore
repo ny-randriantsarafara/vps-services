@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Docker local data
+volumes/db/data/
+volumes/storage/
+
+# OS
+.DS_Store
+Thumbs.db
