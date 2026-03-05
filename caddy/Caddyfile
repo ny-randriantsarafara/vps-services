@@ -9,7 +9,3 @@
 {$HOOP_APP_DOMAIN} {
 	reverse_proxy hoop-web:3000
 }
-
-{$HOOP_API_DOMAIN} {
-	reverse_proxy hoop-api:3001
-}
