@@ -10,28 +10,28 @@ Self-hosted Supabase stack on a VPS, managed via a single `docker-compose.yml` w
 
 ### Core (always running)
 
-| Service | Image | Port | Access |
-|---------|-------|------|--------|
-| Postgres | `supabase/postgres:15.8.1.085` | internal only | Docker network / Supavisor |
-| Redis | `redis:7-alpine` | `127.0.0.1:6379` | SSH tunnel only |
+| Service  | Image                          | Port             | Access                     |
+| -------- | ------------------------------ | ---------------- | -------------------------- |
+| Postgres | `supabase/postgres:15.8.1.085` | internal only    | Docker network / Supavisor |
+| Redis    | `redis:7-alpine`               | `127.0.0.1:6379` | SSH tunnel only            |
 
 ### Supabase stack (`--profile supabase`)
 
-| Service | Image | Port | Access |
-|---------|-------|------|--------|
-| Caddy | `caddy:2-alpine` | `80`, `443` | Public (internet) |
-| Kong (API gateway) | `kong:2.8.1` | internal only | Via Caddy |
-| Studio (dashboard) | `supabase/studio:2026.02.16` | internal only | Via Kong (basic auth) |
-| Auth (GoTrue) | `supabase/gotrue:v2.186.0` | internal only | Via Kong |
-| REST (PostgREST) | `postgrest/postgrest:v14.5` | internal only | Via Kong |
-| Realtime | `supabase/realtime:v2.76.5` | internal only | Via Kong (WebSocket) |
-| Storage | `supabase/storage-api:v1.37.8` | internal only | Via Kong |
-| imgproxy | `darthsim/imgproxy:v3.30.1` | internal only | Via Storage |
-| Edge Functions | `supabase/edge-runtime:v1.70.3` | internal only | Via Kong |
-| Meta (pg-meta) | `supabase/postgres-meta:v0.95.2` | internal only | Via Kong |
-| Analytics (Logflare) | `supabase/logflare:1.31.2` | internal only | Studio |
-| Vector | `timberio/vector:0.53.0-alpine` | internal only | Log pipeline |
-| Supavisor (pooler) | `supabase/supavisor:2.7.4` | `127.0.0.1:5432`, `127.0.0.1:6543` | SSH tunnel |
+| Service              | Image                            | Port                               | Access                |
+| -------------------- | -------------------------------- | ---------------------------------- | --------------------- |
+| Caddy                | `caddy:2-alpine`                 | `80`, `443`                        | Public (internet)     |
+| Kong (API gateway)   | `kong:2.8.1`                     | internal only                      | Via Caddy             |
+| Studio (dashboard)   | `supabase/studio:2026.02.16`     | internal only                      | Via Kong (basic auth) |
+| Auth (GoTrue)        | `supabase/gotrue:v2.186.0`       | internal only                      | Via Kong              |
+| REST (PostgREST)     | `postgrest/postgrest:v14.5`      | internal only                      | Via Kong              |
+| Realtime             | `supabase/realtime:v2.76.5`      | internal only                      | Via Kong (WebSocket)  |
+| Storage              | `supabase/storage-api:v1.37.8`   | internal only                      | Via Kong              |
+| imgproxy             | `darthsim/imgproxy:v3.30.1`      | internal only                      | Via Storage           |
+| Edge Functions       | `supabase/edge-runtime:v1.70.3`  | internal only                      | Via Kong              |
+| Meta (pg-meta)       | `supabase/postgres-meta:v0.95.2` | internal only                      | Via Kong              |
+| Analytics (Logflare) | `supabase/logflare:1.31.2`       | internal only                      | Studio                |
+| Vector               | `timberio/vector:0.53.0-alpine`  | internal only                      | Log pipeline          |
+| Supavisor (pooler)   | `supabase/supavisor:2.7.4`       | `127.0.0.1:5432`, `127.0.0.1:6543` | SSH tunnel            |
 
 ---
 
@@ -39,8 +39,8 @@ Self-hosted Supabase stack on a VPS, managed via a single `docker-compose.yml` w
 
 ```
 internet
-    └── supabase.nyhasinavalona.com (Caddy, HTTPS + auto Let's Encrypt)
-            └── Kong :8000 (Docker internal)
+    ├── supabase.nyhasinavalona.com (Caddy, HTTPS + auto Let's Encrypt)
+    │       └── Kong :8000 (Docker internal)
                     ├── /rest/v1/*        → PostgREST (API key auth)
                     ├── /auth/v1/*        → GoTrue (API key auth)
                     ├── /storage/v1/*     → Storage (self-managed auth)
@@ -49,6 +49,12 @@ internet
                     ├── /functions/v1/*   → Edge Functions
                     ├── /pg/*             → postgres-meta (admin only)
                     └── /*                → Studio (basic auth)
+    ├── pomodoro.nyhasinavalona.com
+    │       └── pomodoro:3000 (Docker internal)
+    ├── hoop.nyhasinavalona.com
+    │       └── hoop-web:3000 (Docker internal)
+    └── hoop-api.nyhasinavalona.com
+            └── hoop-api:3001 (Docker internal)
 
 developer PC (SSH tunnel)
     ├── localhost:5432  → Supavisor (session mode pooling)
@@ -81,15 +87,15 @@ other Docker apps (same vps-net)
 
 ## Volumes
 
-| Volume | Used by | Contents |
-|--------|---------|----------|
-| `postgres-data` | Postgres | Database files |
-| `redis-data` | Redis | AOF persistence |
-| `storage-data` | Storage, imgproxy | Uploaded files |
-| `db-config` | Postgres | pgsodium decryption key |
-| `deno-cache` | Edge Functions | Deno module cache |
-| `caddy_data` | Caddy | TLS certificates |
-| `caddy_config` | Caddy | Caddy runtime config |
+| Volume          | Used by           | Contents                |
+| --------------- | ----------------- | ----------------------- |
+| `postgres-data` | Postgres          | Database files          |
+| `redis-data`    | Redis             | AOF persistence         |
+| `storage-data`  | Storage, imgproxy | Uploaded files          |
+| `db-config`     | Postgres          | pgsodium decryption key |
+| `deno-cache`    | Edge Functions    | Deno module cache       |
+| `caddy_data`    | Caddy             | TLS certificates        |
+| `caddy_config`  | Caddy             | Caddy runtime config    |
 
 ---
 

@@ -5,3 +5,11 @@
 {$POMODORO_DOMAIN} {
 	reverse_proxy pomodoro:3000
 }
+
+{$HOOP_APP_DOMAIN} {
+	reverse_proxy hoop-web:3000
+}
+
+{$HOOP_API_DOMAIN} {
+	reverse_proxy hoop-api:3001
+}
