@@ -11,6 +11,7 @@ volumes:
 
 networks:
   vps-net:
+    name: vps-net
     driver: bridge
 
 services:
@@ -462,6 +463,7 @@ services:
       - caddy_config:/config
     environment:
       PROXY_DOMAIN: ${PROXY_DOMAIN:-supabase.nyhasinavalona.com}
+      POMODORO_DOMAIN: ${POMODORO_DOMAIN:-pomodoro.nyhasinavalona.com}
     depends_on:
       kong:
         condition: service_started

@@ -1,3 +1,7 @@
 {$PROXY_DOMAIN} {
 	reverse_proxy kong:8000
 }
+
+{$POMODORO_DOMAIN} {
+	reverse_proxy pomodoro:3000
+}
