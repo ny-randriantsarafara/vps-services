@@ -464,6 +464,7 @@ services:
     environment:
       PROXY_DOMAIN: ${PROXY_DOMAIN:-supabase.nyhasinavalona.com}
       POMODORO_DOMAIN: ${POMODORO_DOMAIN:-pomodoro.nyhasinavalona.com}
+      HOOP_APP_DOMAIN: ${HOOP_APP_DOMAIN:-hoop.nyhasinavalona.com}
     depends_on:
       kong:
         condition: service_started
