@@ -101,11 +101,14 @@ jobs:
       - name: Read manifest
         id: manifest
         run: |
-          echo "name=$(yq '.name' deploy/manifest.yml)" >> "$GITHUB_OUTPUT"
-          echo "health_port=$(yq '.health_check.port // 3000' deploy/manifest.yml)" >> "$GITHUB_OUTPUT"
-          echo "health_path=$(yq '.health_check.path // "/"' deploy/manifest.yml)" >> "$GITHUB_OUTPUT"
-          echo "health_retries=$(yq '.health_check.retries // 15' deploy/manifest.yml)" >> "$GITHUB_OUTPUT"
-          echo "health_interval=$(yq '.health_check.interval // 5' deploy/manifest.yml)" >> "$GITHUB_OUTPUT"
+          {
+            echo "name=$(yq '.name' deploy/manifest.yml)"
+            echo "health_port=$(yq '.health_check.port // 3000' deploy/manifest.yml)"
+            echo "health_path=$(yq '.health_check.path // "/"' deploy/manifest.yml)"
+            echo "health_retries=$(yq '.health_check.retries // 15' deploy/manifest.yml)"
+            echo "health_interval=$(yq '.health_check.interval // 5' deploy/manifest.yml)"
+            echo "bootstrap_databases=$(yq -r '.bootstrap.databases // [] | join(\" \")' deploy/manifest.yml)"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.0
         with:
@@ -159,20 +162,63 @@ jobs:
           SERVICE: ${{ steps.manifest.outputs.name }}
           RETRIES: ${{ steps.manifest.outputs.health_retries }}
           INTERVAL: ${{ steps.manifest.outputs.health_interval }}
+          BOOTSTRAP_DATABASES: ${{ steps.manifest.outputs.bootstrap_databases }}
           ENV_FILE: ${{ steps.env.outputs.env_file }}
         run: |
           DEPLOY_DIR="${DEPLOY_BASE}/${SERVICE}"
 
           # Create dir and sync files
+          # shellcheck disable=SC2029
           ssh "$VPS_USER@$VPS_HOST" "mkdir -p $DEPLOY_DIR"
           scp deploy/compose.yml "$VPS_USER@$VPS_HOST:$DEPLOY_DIR/docker-compose.yml"
           scp "$ENV_FILE" "$VPS_USER@$VPS_HOST:$DEPLOY_DIR/.env"
           rm -f "$ENV_FILE"
 
           # Pull, start, health check
-          ssh "$VPS_USER@$VPS_HOST" bash -s <<REMOTE
+          # shellcheck disable=SC2029
+          ssh "$VPS_USER@$VPS_HOST" "DEPLOY_DIR=$(printf '%q' "$DEPLOY_DIR") SERVICE=$(printf '%q' "$SERVICE") RETRIES=$(printf '%q' "$RETRIES") INTERVAL=$(printf '%q' "$INTERVAL") BOOTSTRAP_DATABASES=$(printf '%q' "$BOOTSTRAP_DATABASES") bash -s" <<'REMOTE'
             set -e
             cd "$DEPLOY_DIR"
+
+            validate_database_name() {
+              local database_name="$1"
+
+              [[ "$database_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+            }
+
+            database_exists() {
+              local database_name="$1"
+              local query
+              query="SELECT 1 FROM pg_database WHERE datname = '$database_name'"
+
+              docker exec supabase-db psql -U postgres -tAc "$query" | grep -q '^1$'
+            }
+
+            create_database() {
+              local database_name="$1"
+              local statement
+              statement="CREATE DATABASE \"$database_name\""
+
+              docker exec supabase-db psql -U postgres -c "$statement"
+            }
+
+            if [ -n "$BOOTSTRAP_DATABASES" ]; then
+              echo "Bootstrapping databases: $BOOTSTRAP_DATABASES"
+              for database_name in $BOOTSTRAP_DATABASES; do
+                if ! validate_database_name "$database_name"; then
+                  echo "invalid database name: $database_name" >&2
+                  exit 1
+                fi
+
+                if database_exists "$database_name"; then
+                  echo "database already exists: $database_name"
+                  continue
+                fi
+
+                echo "creating database: $database_name"
+                create_database "$database_name"
+              done
+            fi
 
             echo "Pulling latest image..."
             docker compose pull
