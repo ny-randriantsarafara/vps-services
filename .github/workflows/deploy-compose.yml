@@ -18,14 +18,7 @@ on:
       services:
         required: true
         type: string
-      env_content:
-        required: true
-        type: string
       bootstrap_databases:
-        required: false
-        type: string
-        default: ""
-      required_database_role:
         required: false
         type: string
         default: ""
@@ -42,6 +35,8 @@ on:
         type: number
         default: 50
     secrets:
+      runtime_env:
+        required: true
       vps_ssh_key:
         required: true
       vps_host_key:
@@ -105,7 +100,7 @@ jobs:
 
           env_file=$(mktemp)
           cat > "$env_file" <<'EOF'
-          ${{ inputs.env_content }}
+          ${{ secrets.runtime_env }}
           EOF
 
           if [[ ! -s "$env_file" ]]; then
@@ -126,7 +121,6 @@ jobs:
           DEPLOY_DIR: ${{ inputs.deploy_dir }}
           SERVICES: ${{ inputs.services }}
           DATABASES: ${{ inputs.bootstrap_databases }}
-          REQUIRED_ROLE: ${{ inputs.required_database_role }}
           RETRIES: ${{ inputs.health_retries }}
           INTERVAL: ${{ inputs.health_interval }}
           LOG_TAIL: ${{ inputs.log_tail }}
@@ -135,7 +129,7 @@ jobs:
           set -euo pipefail
 
           ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_DIR=$(printf '%q' "$DEPLOY_DIR") SERVICES=$(printf '%q' "$SERVICES") DATABASES=$(printf '%q' "$DATABASES") REQUIRED_ROLE=$(printf '%q' "$REQUIRED_ROLE") RETRIES=$(printf '%q' "$RETRIES") INTERVAL=$(printf '%q' "$INTERVAL") LOG_TAIL=$(printf '%q' "$LOG_TAIL") bash -s" <<'REMOTE'
+            "DEPLOY_DIR=$(printf '%q' "$DEPLOY_DIR") SERVICES=$(printf '%q' "$SERVICES") DATABASES=$(printf '%q' "$DATABASES") RETRIES=$(printf '%q' "$RETRIES") INTERVAL=$(printf '%q' "$INTERVAL") LOG_TAIL=$(printf '%q' "$LOG_TAIL") bash -s" <<'REMOTE'
           set -euo pipefail
 
           cd "$DEPLOY_DIR"
@@ -161,29 +155,6 @@ jobs:
             local database_name_ident=${database_name//\"/\"\"}
             docker exec supabase-db psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$database_name_ident\""
           }
-
-          validate_role_name() {
-            local role_name="$1"
-            [[ "$role_name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
-          }
-
-          role_exists() {
-            local role_name="$1"
-            local role_name_sql=${role_name//\'/\'\'}
-            docker exec supabase-db psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$role_name_sql'" | grep -q '^1$'
-          }
-
-          if [[ -n "$REQUIRED_ROLE" ]]; then
-            if ! validate_role_name "$REQUIRED_ROLE"; then
-              echo "invalid database role name: $REQUIRED_ROLE" >&2
-              exit 1
-            fi
-
-            if ! role_exists "$REQUIRED_ROLE"; then
-              echo "database role not found: $REQUIRED_ROLE" >&2
-              exit 1
-            fi
-          fi
 
           if [[ -n "$DATABASES" ]]; then
             for database_name in $DATABASES; do
