@@ -18,6 +18,9 @@ on:
       services:
         required: true
         type: string
+      runtime_env:
+        required: true
+        type: string
       bootstrap_databases:
         required: false
         type: string
@@ -35,8 +38,6 @@ on:
         type: number
         default: 50
     secrets:
-      runtime_env:
-        required: true
       vps_ssh_key:
         required: true
       vps_host_key:
@@ -100,7 +101,7 @@ jobs:
 
           env_file=$(mktemp)
           cat > "$env_file" <<'EOF'
-          ${{ secrets.runtime_env }}
+          ${{ inputs.runtime_env }}
           EOF
 
           if [[ ! -s "$env_file" ]]; then
