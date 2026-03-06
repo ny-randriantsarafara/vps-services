@@ -4,11 +4,13 @@ on:
   workflow_call:
     inputs:
       vps_user:
-        required: true
+        required: false
         type: string
+        default: ""
       vps_host:
-        required: true
+        required: false
         type: string
+        default: ""
       deploy_dir:
         required: true
         type: string
@@ -19,8 +21,9 @@ on:
         required: true
         type: string
       runtime_env:
-        required: true
+        required: false
         type: string
+        default: ""
       bootstrap_databases:
         required: false
         type: string
@@ -38,6 +41,12 @@ on:
         type: number
         default: 50
     secrets:
+      vps_user_secret:
+        required: false
+      vps_host_secret:
+        required: false
+      runtime_env_secret:
+        required: false
       vps_ssh_key:
         required: true
       vps_host_key:
@@ -64,9 +73,22 @@ jobs:
           printf '%s\n' "${{ secrets.vps_host_key }}" >> ~/.ssh/known_hosts
 
       - name: Validate inputs
+        env:
+          EFFECTIVE_VPS_USER: ${{ secrets.vps_user_secret != '' && secrets.vps_user_secret || inputs.vps_user }}
+          EFFECTIVE_VPS_HOST: ${{ secrets.vps_host_secret != '' && secrets.vps_host_secret || inputs.vps_host }}
         shell: bash
         run: |
           set -euo pipefail
+
+          if [[ -z "$EFFECTIVE_VPS_USER" ]]; then
+            echo "vps user is required" >&2
+            exit 1
+          fi
+
+          if [[ -z "$EFFECTIVE_VPS_HOST" ]]; then
+            echo "vps host is required" >&2
+            exit 1
+          fi
 
           if [[ ! -f "${{ inputs.compose_file }}" ]]; then
             echo "compose file not found: ${{ inputs.compose_file }}" >&2
@@ -80,8 +102,8 @@ jobs:
 
       - name: Sync compose file to VPS
         env:
-          VPS_USER: ${{ inputs.vps_user }}
-          VPS_HOST: ${{ inputs.vps_host }}
+          VPS_USER: ${{ secrets.vps_user_secret != '' && secrets.vps_user_secret || inputs.vps_user }}
+          VPS_HOST: ${{ secrets.vps_host_secret != '' && secrets.vps_host_secret || inputs.vps_host }}
           DEPLOY_DIR: ${{ inputs.deploy_dir }}
           COMPOSE_FILE: ${{ inputs.compose_file }}
         shell: bash
@@ -92,20 +114,30 @@ jobs:
 
       - name: Write runtime env on VPS
         env:
-          VPS_USER: ${{ inputs.vps_user }}
-          VPS_HOST: ${{ inputs.vps_host }}
+          VPS_USER: ${{ secrets.vps_user_secret != '' && secrets.vps_user_secret || inputs.vps_user }}
+          VPS_HOST: ${{ secrets.vps_host_secret != '' && secrets.vps_host_secret || inputs.vps_host }}
           DEPLOY_DIR: ${{ inputs.deploy_dir }}
+          RUNTIME_ENV_PUBLIC: ${{ inputs.runtime_env }}
+          RUNTIME_ENV_SECRET: ${{ secrets.runtime_env_secret }}
         shell: bash
         run: |
           set -euo pipefail
 
           env_file=$(mktemp)
-          cat > "$env_file" <<'EOF'
-          ${{ inputs.runtime_env }}
-          EOF
+
+          if [[ -n "$RUNTIME_ENV_PUBLIC" ]]; then
+            printf '%s\n' "$RUNTIME_ENV_PUBLIC" > "$env_file"
+          fi
+
+          if [[ -n "$RUNTIME_ENV_SECRET" ]]; then
+            if [[ -s "$env_file" ]]; then
+              printf '\n' >> "$env_file"
+            fi
+            printf '%s\n' "$RUNTIME_ENV_SECRET" >> "$env_file"
+          fi
 
           if [[ ! -s "$env_file" ]]; then
-            echo "env_content produced an empty env file" >&2
+            echo "runtime env is empty" >&2
             exit 1
           fi
 
@@ -117,8 +149,8 @@ jobs:
 
       - name: Bootstrap databases and deploy services
         env:
-          VPS_USER: ${{ inputs.vps_user }}
-          VPS_HOST: ${{ inputs.vps_host }}
+          VPS_USER: ${{ secrets.vps_user_secret != '' && secrets.vps_user_secret || inputs.vps_user }}
+          VPS_HOST: ${{ secrets.vps_host_secret != '' && secrets.vps_host_secret || inputs.vps_host }}
           DEPLOY_DIR: ${{ inputs.deploy_dir }}
           SERVICES: ${{ inputs.services }}
           DATABASES: ${{ inputs.bootstrap_databases }}
