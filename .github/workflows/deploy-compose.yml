@@ -172,6 +172,10 @@ jobs:
             exit 1
           fi
 
+          set -a
+          . ./.env
+          set +a
+
           validate_database_name() {
             local database_name="$1"
             [[ "$database_name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
@@ -189,6 +193,31 @@ jobs:
             docker exec supabase-db psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$database_name_ident\""
           }
 
+          validate_role_name() {
+            local role_name="$1"
+            [[ "$role_name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
+          }
+
+          grant_database_access() {
+            local database_name="$1"
+            local database_user="$2"
+            local database_name_ident=${database_name//\"/\"\"}
+            local database_user_ident=${database_user//\"/\"\"}
+            local grant_sql
+
+            docker exec supabase-db psql -U postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE \"$database_name_ident\" TO \"$database_user_ident\""
+
+            grant_sql="GRANT USAGE, CREATE ON SCHEMA public TO \"$database_user_ident\";"
+            grant_sql+=" GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$database_user_ident\";"
+            grant_sql+=" GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"$database_user_ident\";"
+            grant_sql+=" GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO \"$database_user_ident\";"
+            grant_sql+=" ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"$database_user_ident\";"
+            grant_sql+=" ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO \"$database_user_ident\";"
+            grant_sql+=" ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO \"$database_user_ident\";"
+
+            docker exec supabase-db psql -U postgres -d "$database_name" -v ON_ERROR_STOP=1 -c "$grant_sql"
+          }
+
           if [[ -n "$DATABASES" ]]; then
             for database_name in $DATABASES; do
               if ! validate_database_name "$database_name"; then
@@ -204,6 +233,26 @@ jobs:
               echo "creating database: $database_name"
               create_database "$database_name"
             done
+          fi
+
+          if [[ -n "${DB_NAME:-}" || -n "${DB_USER:-}" ]]; then
+            if [[ -z "${DB_NAME:-}" || -z "${DB_USER:-}" ]]; then
+              echo "DB_NAME and DB_USER must both be set to grant database access" >&2
+              exit 1
+            fi
+
+            if ! validate_database_name "$DB_NAME"; then
+              echo "invalid DB_NAME: $DB_NAME" >&2
+              exit 1
+            fi
+
+            if ! validate_role_name "$DB_USER"; then
+              echo "invalid DB_USER: $DB_USER" >&2
+              exit 1
+            fi
+
+            echo "granting database access for user: $DB_USER on database: $DB_NAME"
+            grant_database_access "$DB_NAME" "$DB_USER"
           fi
 
           docker compose pull $SERVICES
