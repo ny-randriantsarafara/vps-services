@@ -52,9 +52,8 @@ internet
     ├── pomodoro.nyhasinavalona.com
     │       └── pomodoro:3000 (Docker internal)
     ├── hoop.nyhasinavalona.com
-    │       └── hoop-web:3000 (Docker internal)
-    └── hoop-api.nyhasinavalona.com
-            └── hoop-api:3001 (Docker internal)
+    │       ├── /api/* -> hoop-api:3001 (Docker internal)
+    │       └── /*     -> hoop-web:3000 (Docker internal)
 
 developer PC (SSH tunnel)
     ├── localhost:5432  → Supavisor (session mode pooling)

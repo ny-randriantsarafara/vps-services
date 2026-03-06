@@ -7,5 +7,9 @@
 }
 
 {$HOOP_APP_DOMAIN} {
+	handle /api/* {
+		reverse_proxy hoop-api:3001
+	}
+
 	reverse_proxy hoop-web:3000
 }
