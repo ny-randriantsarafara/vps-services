@@ -1,0 +1,239 @@
+name: Deploy Compose
+
+on:
+  workflow_call:
+    inputs:
+      vps_user:
+        required: true
+        type: string
+      vps_host:
+        required: true
+        type: string
+      deploy_dir:
+        required: true
+        type: string
+      compose_file:
+        required: true
+        type: string
+      services:
+        required: true
+        type: string
+      env_content:
+        required: true
+        type: string
+      bootstrap_databases:
+        required: false
+        type: string
+        default: ""
+      required_database_role:
+        required: false
+        type: string
+        default: ""
+      health_retries:
+        required: false
+        type: number
+        default: 15
+      health_interval:
+        required: false
+        type: number
+        default: 5
+      log_tail:
+        required: false
+        type: number
+        default: 50
+    secrets:
+      vps_ssh_key:
+        required: true
+      vps_host_key:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy To VPS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.vps_ssh_key }}
+
+      - name: Add VPS host key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.vps_host_key }}" >> ~/.ssh/known_hosts
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "${{ inputs.compose_file }}" ]]; then
+            echo "compose file not found: ${{ inputs.compose_file }}" >&2
+            exit 1
+          fi
+
+          if [[ -z "${{ inputs.services }}" ]]; then
+            echo "services input cannot be empty" >&2
+            exit 1
+          fi
+
+      - name: Sync compose file to VPS
+        env:
+          VPS_USER: ${{ inputs.vps_user }}
+          VPS_HOST: ${{ inputs.vps_host }}
+          DEPLOY_DIR: ${{ inputs.deploy_dir }}
+          COMPOSE_FILE: ${{ inputs.compose_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "mkdir -p '$DEPLOY_DIR'"
+          scp -o StrictHostKeyChecking=yes "$COMPOSE_FILE" "$VPS_USER@$VPS_HOST:$DEPLOY_DIR/docker-compose.yml"
+
+      - name: Write runtime env on VPS
+        env:
+          VPS_USER: ${{ inputs.vps_user }}
+          VPS_HOST: ${{ inputs.vps_host }}
+          DEPLOY_DIR: ${{ inputs.deploy_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          env_file=$(mktemp)
+          cat > "$env_file" <<'EOF'
+          ${{ inputs.env_content }}
+          EOF
+
+          if [[ ! -s "$env_file" ]]; then
+            echo "env_content produced an empty env file" >&2
+            exit 1
+          fi
+
+          ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "cat > '$DEPLOY_DIR/.env.tmp' && mv '$DEPLOY_DIR/.env.tmp' '$DEPLOY_DIR/.env'" \
+            < "$env_file"
+
+          rm -f "$env_file"
+
+      - name: Bootstrap databases and deploy services
+        env:
+          VPS_USER: ${{ inputs.vps_user }}
+          VPS_HOST: ${{ inputs.vps_host }}
+          DEPLOY_DIR: ${{ inputs.deploy_dir }}
+          SERVICES: ${{ inputs.services }}
+          DATABASES: ${{ inputs.bootstrap_databases }}
+          REQUIRED_ROLE: ${{ inputs.required_database_role }}
+          RETRIES: ${{ inputs.health_retries }}
+          INTERVAL: ${{ inputs.health_interval }}
+          LOG_TAIL: ${{ inputs.log_tail }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_DIR=$(printf '%q' "$DEPLOY_DIR") SERVICES=$(printf '%q' "$SERVICES") DATABASES=$(printf '%q' "$DATABASES") REQUIRED_ROLE=$(printf '%q' "$REQUIRED_ROLE") RETRIES=$(printf '%q' "$RETRIES") INTERVAL=$(printf '%q' "$INTERVAL") LOG_TAIL=$(printf '%q' "$LOG_TAIL") bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "$DEPLOY_DIR"
+
+          if [[ ! -f .env ]]; then
+            echo "Missing $DEPLOY_DIR/.env" >&2
+            exit 1
+          fi
+
+          validate_database_name() {
+            local database_name="$1"
+            [[ "$database_name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
+          }
+
+          database_exists() {
+            local database_name="$1"
+            local database_name_sql=${database_name//\'/\'\'}
+            docker exec supabase-db psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$database_name_sql'" | grep -q '^1$'
+          }
+
+          create_database() {
+            local database_name="$1"
+            local database_name_ident=${database_name//\"/\"\"}
+            docker exec supabase-db psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$database_name_ident\""
+          }
+
+          validate_role_name() {
+            local role_name="$1"
+            [[ "$role_name" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
+          }
+
+          role_exists() {
+            local role_name="$1"
+            local role_name_sql=${role_name//\'/\'\'}
+            docker exec supabase-db psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$role_name_sql'" | grep -q '^1$'
+          }
+
+          if [[ -n "$REQUIRED_ROLE" ]]; then
+            if ! validate_role_name "$REQUIRED_ROLE"; then
+              echo "invalid database role name: $REQUIRED_ROLE" >&2
+              exit 1
+            fi
+
+            if ! role_exists "$REQUIRED_ROLE"; then
+              echo "database role not found: $REQUIRED_ROLE" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ -n "$DATABASES" ]]; then
+            for database_name in $DATABASES; do
+              if ! validate_database_name "$database_name"; then
+                echo "invalid database name: $database_name" >&2
+                exit 1
+              fi
+
+              if database_exists "$database_name"; then
+                echo "database already exists: $database_name"
+                continue
+              fi
+
+              echo "creating database: $database_name"
+              create_database "$database_name"
+            done
+          fi
+
+          docker compose pull $SERVICES
+          docker compose up -d $SERVICES
+
+          for attempt in $(seq 1 "$RETRIES"); do
+            all_healthy=true
+
+            for service in $SERVICES; do
+              cid=$(docker compose ps -q "$service" 2>/dev/null)
+
+              if [[ -z "$cid" ]]; then
+                echo "Attempt $attempt/$RETRIES: service not found: $service"
+                all_healthy=false
+                continue
+              fi
+
+              state=$(docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null || echo "unknown")
+              health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "unknown")
+
+              if [[ "$state" != "running" ]] || [[ "$health" != "healthy" && "$health" != "none" ]]; then
+                echo "Attempt $attempt/$RETRIES: service=$service state=$state health=$health"
+                all_healthy=false
+              fi
+            done
+
+            if [[ "$all_healthy" == true ]]; then
+              exit 0
+            fi
+
+            sleep "$INTERVAL"
+          done
+
+          echo "Service health check failed" >&2
+          docker compose logs --tail="$LOG_TAIL" $SERVICES
+          exit 1
+          REMOTE

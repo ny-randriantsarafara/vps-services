@@ -1,0 +1,73 @@
+name: Build Image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+      context:
+        required: false
+        type: string
+        default: .
+      dockerfile:
+        required: true
+        type: string
+      stable_tag:
+        required: false
+        type: string
+        default: latest
+    outputs:
+      image_tag:
+        description: Image tag published for the current commit.
+        value: ${{ jobs.build.outputs.image_tag }}
+
+jobs:
+  build:
+    name: Build And Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_tag="sha-${GITHUB_SHA::12}"
+          stable_tag="${{ inputs.stable_tag }}"
+
+          if [[ -z "$stable_tag" ]]; then
+            echo "stable_tag input cannot be empty" >&2
+            exit 1
+          fi
+
+          if [[ ! "$stable_tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "invalid stable_tag: $stable_tag" >&2
+            exit 1
+          fi
+
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: true
+          tags: |
+            ${{ inputs.image }}:${{ steps.meta.outputs.image_tag }}
+            ${{ inputs.image }}:${{ inputs.stable_tag }}
