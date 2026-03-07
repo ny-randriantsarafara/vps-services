@@ -7,56 +7,12 @@
 }
 
 {$HOOP_APP_DOMAIN} {
-	handle /api/auth/login {
+	handle /api/* {
 		reverse_proxy hoop-api:3001
 	}
 
-	handle /api/auth/me {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/auth/* {
+	handle /auth/* {
 		reverse_proxy hoop-web:3000
-	}
-
-	handle /api/health {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/categories* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/players* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/seasons* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/clubs* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/dashboard* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/licenses* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/templates* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/documents* {
-		reverse_proxy hoop-api:3001
-	}
-
-	handle /api/ocr* {
-		reverse_proxy hoop-api:3001
 	}
 
 	reverse_proxy hoop-web:3000
