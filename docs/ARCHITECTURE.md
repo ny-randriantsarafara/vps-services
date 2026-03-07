@@ -52,7 +52,11 @@ internet
     ├── pomodoro.nyhasinavalona.com
     │       └── pomodoro:3000 (Docker internal)
     ├── hoop.nyhasinavalona.com
-    │       ├── /api/* -> hoop-api:3001 (Docker internal)
+    │       ├── /api/auth/login -> hoop-api:3001 (Docker internal)
+    │       ├── /api/auth/me    -> hoop-api:3001 (Docker internal)
+    │       ├── /api/auth/*     -> hoop-web:3000 (Docker internal)
+    │       ├── /api/{health,categories*,players*,seasons*,clubs*,dashboard*,licenses*,templates*,documents*,ocr*}
+    │       │                  -> hoop-api:3001 (Docker internal)
     │       └── /*     -> hoop-web:3000 (Docker internal)
 
 developer PC (SSH tunnel)
