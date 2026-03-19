@@ -17,3 +17,11 @@
 
 	reverse_proxy hoop-web:3000
 }
+
+{$VISA_INSIGHT_APP_DOMAIN} {
+	handle /api/* {
+		reverse_proxy visa-insight-api:3001
+	}
+
+	reverse_proxy visa-insight-web:3000
+}
