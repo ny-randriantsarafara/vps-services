@@ -40,12 +40,18 @@ on:
         required: false
         type: number
         default: 50
+      ghcr_username:
+        required: false
+        type: string
+        default: ""
     secrets:
       vps_user_secret:
         required: false
       vps_host_secret:
         required: false
       runtime_env_secret:
+        required: false
+      ghcr_access_token:
         required: false
       vps_ssh_key:
         required: true
@@ -146,6 +152,24 @@ jobs:
             < "$env_file"
 
           rm -f "$env_file"
+
+      - name: Authenticate VPS to GHCR
+        env:
+          VPS_USER: ${{ secrets.vps_user_secret != '' && secrets.vps_user_secret || inputs.vps_user }}
+          VPS_HOST: ${{ secrets.vps_host_secret != '' && secrets.vps_host_secret || inputs.vps_host }}
+          GHCR_USERNAME: ${{ inputs.ghcr_username }}
+          GHCR_ACCESS_TOKEN: ${{ secrets.ghcr_access_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GHCR_USERNAME" || -z "$GHCR_ACCESS_TOKEN" ]]; then
+            echo "Skipping GHCR login on VPS: ghcr_username or ghcr_access_token not provided"
+            exit 0
+          fi
+
+          printf '%s\n' "$GHCR_ACCESS_TOKEN" | ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "docker login ghcr.io -u $(printf '%q' "$GHCR_USERNAME") --password-stdin"
 
       - name: Bootstrap databases and deploy services
         env:

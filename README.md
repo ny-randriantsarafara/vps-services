@@ -121,3 +121,7 @@ make logs        # follow logs
 make ps          # status
 make tunnel      # show ssh tunnel command
 ```
+
+## Reusable deploy workflow
+
+`.github/workflows/deploy-compose.yml` supports private GHCR images. When callers provide `ghcr_username` plus the `ghcr_access_token` secret, the workflow logs the VPS Docker daemon into `ghcr.io` before `docker compose pull`. When those values are omitted, the workflow skips registry login and remains suitable for public images.
