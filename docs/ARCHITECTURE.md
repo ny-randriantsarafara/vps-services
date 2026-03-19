@@ -55,6 +55,9 @@ internet
     │       ├── /api/*  -> hoop-api:3001 (Docker internal)
     │       ├── /auth/* -> hoop-web:3000 (Docker internal)
     │       └── /*     -> hoop-web:3000 (Docker internal)
+    ├── visa-insight.nyhasinavalona.com (Visa Insight; override via `VISA_INSIGHT_APP_DOMAIN`)
+    │       ├── /api/* -> visa-insight-api:3001 (Docker internal)
+    │       └── /*     -> visa-insight-web:3000 (Docker internal)
 
 developer PC (SSH tunnel)
     ├── localhost:5432  → Supavisor (session mode pooling)

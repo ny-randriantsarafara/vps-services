@@ -56,7 +56,7 @@ ssh-keyscan -H your-vps-ip-or-hostname
 
 Set in: **Settings > Secrets and variables > Actions > Variables**
 
-Every key from `.env.example` should exist as a repository variable. The deploy workflow assembles the `.env` file on the VPS from all repository variables at deploy time (using `toJSON(vars)`).
+Every key from `.env.example` should exist as a repository variable. This includes `VISA_INSIGHT_APP_DOMAIN` for the Visa Insight public host (must match DNS and `APP_BASE_URL` in the app repo). The deploy workflow assembles the `.env` file on the VPS from all repository variables at deploy time (using `toJSON(vars)`).
 
 To sync variables between your local `.env` and GitHub:
 
@@ -120,3 +120,19 @@ The `.env` file is assembled separately from repository variables (never committ
 | SSH permission denied | Verify `VPS_SSH_KEY` matches `~/.ssh/authorized_keys` on VPS |
 | Docker stack unhealthy | SSH to VPS, run `docker compose --profile supabase logs` |
 | Health check timeout | Check individual service logs: `docker logs supabase-<service>` |
+
+---
+
+## Visa Insight ingress
+
+Routing lives in `caddy/Caddyfile` with the same path-split pattern as Hoop: `/api/*` → `visa-insight-api:3001`, everything else → `visa-insight-web:3000`. Caddy reads `VISA_INSIGHT_APP_DOMAIN` from the VPS `.env` (set via GitHub **repository variables**). Deploy the Visa Insight compose stack on `vps-net` with service names `visa-insight-api` and `visa-insight-web` before expecting public traffic.
+
+### Post-merge verification (production)
+
+Replace the host with your `VISA_INSIGHT_APP_DOMAIN` value (DNS must point at this VPS):
+
+1. **Web** — `curl -fsS -o /dev/null -w '%{http_code}\n' "https://visa-insight.nyhasinavalona.com/"` (adjust host; expect `200` or your app's normal status).
+2. **API** — `curl -fsS "https://visa-insight.nyhasinavalona.com/api/health"` (expect API health payload when the API container is up).
+
+502 on `/api/*` usually means the upstream container is not on `vps-net` or names do not match the Caddyfile.
+
