@@ -25,3 +25,7 @@
 
 	reverse_proxy visa-insight-web:3000
 }
+
+{$VISA_ADVISOR_APP_DOMAIN} {
+	reverse_proxy visa-insight-advisor:3000
+}

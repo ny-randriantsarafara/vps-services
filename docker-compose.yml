@@ -466,6 +466,7 @@ services:
       POMODORO_DOMAIN: ${POMODORO_DOMAIN:-pomodoro.nyhasinavalona.com}
       HOOP_APP_DOMAIN: ${HOOP_APP_DOMAIN:-hoop.nyhasinavalona.com}
       VISA_INSIGHT_APP_DOMAIN: ${VISA_INSIGHT_APP_DOMAIN:-visa-insight.nyhasinavalona.com}
+      VISA_ADVISOR_APP_DOMAIN: ${VISA_ADVISOR_APP_DOMAIN:-visa-advisor.nyhasinavalona.com}
     depends_on:
       kong:
         condition: service_started
