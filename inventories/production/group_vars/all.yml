@@ -14,8 +14,8 @@ vps_admin_user: vps-admin
 vps_admin_public_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGc8Nt0ptrQRnBuH+8a0sVqQoap/gRyaIGrdJ4EkHMVX vps-admin@vps-d9d9aca9"
 
-# Aucun domaine applicatif n'est approuvé : aucune route HTTP n'est acceptée.
-vps_domain: ""
+# Domaine des instances : wildcard DNS *.apps.nyhasinavalona.com vers le VPS (docs/OPERATIONS.md).
+vps_domain: apps.nyhasinavalona.com
 
 # Plafond global, toutes applications confondues.
 vps_preview_limit: 2
@@ -25,4 +25,14 @@ vps_preview_limit: 2
 #     application: exemple
 #     environments: [staging, preview]
 #     public_keys: ["ssh-ed25519 AAAA... ci@exemple"]
-vps_deploy_accounts: {}
+vps_deploy_accounts:
+  my-media-nonprod:
+    application: my-media
+    environments: [staging, preview]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKu1xgGYOhEqHlL+wkfcTlViEF9mc/Oy6ni/vI8KtVS6 github-actions@my-media-nonprod"
+  my-media-prod:
+    application: my-media
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMl06TMSHn8mQCu+1CjXaamlGi/RySlF+dvT5rSShd8e github-actions@my-media-prod"

@@ -40,7 +40,7 @@ Retour arrière local : extraire l'archive dans un dossier séparé, sans relanc
 2. Valider le socle sur une VM Debian 13 jetable : premier passage, second passage sans changement, reboot, nouvelles connexions SSH, ports IPv4/IPv6 depuis une autre machine.
 3. Provisionner le VPS réel après accord, puis mesurer `df`, la mémoire au repos et les règles réseau ; ajuster les enveloppes si nécessaire.
 4. Enregistrer une application de test explicitement nommée et dérouler un cycle complet : deux previews, troisième refusée, mise à jour, fermeture, expiration.
-5. Choisir un domaine dédié et son mode TLS ; jusque-là, `vps_domain` reste vide et aucune route n'est publiée.
+5. Choisir un domaine dédié et son mode TLS : `apps.nyhasinavalona.com`, wildcard DNS sans proxy, certificats obtenus par Caddy (fait le 11/10/2026).
 6. Adopter le contrat application par application. Production, sauvegardes hors VPS et exercice de restauration sont propres à chaque application.
 
 Retour arrière serveur : maintenance explicite du socle. La sauvegarde OVH est conservée, mais sa restauration réintroduirait l'ancienne stack.

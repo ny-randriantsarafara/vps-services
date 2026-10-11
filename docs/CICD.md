@@ -30,7 +30,7 @@ Le socle se provisionne depuis le poste de l'opérateur (`make platform TARGET=.
 
 ## Dépôts applicatifs
 
-Les déploiements commencent **manuellement**, depuis le poste, avec le playbook de l'application (voir [APP-CONTRACT](APP-CONTRACT.md)). Une automatisation GitHub n'est pas encore approuvée ; lorsqu'elle le sera, elle devra respecter ces règles :
+Une application se déploie depuis son propre dépôt : à la main depuis un poste, ou par sa CI. Dans les deux cas, elle passe par son playbook et le rôle `ny.vps.app` (voir [APP-CONTRACT](APP-CONTRACT.md)). Toute automatisation GitHub respecte ces règles :
 
 - Un compte SSH de déploiement par usage : nonprod (staging et previews) et production, distincts. Sans groupe `docker` ni sudo général ; seulement `vpsctl request`.
 - Clé privée et empreinte du serveur dans des secrets d'environnement GitHub restreints ; `known_hosts` vérifié, jamais `StrictHostKeyChecking=no`.
@@ -40,6 +40,12 @@ Les déploiements commencent **manuellement**, depuis le poste, avec le playbook
 - À la fermeture de la PR, `operation=destroy` avec une génération supérieure à la dernière livraison.
 - La collection `ny.vps` est installée à un SHA de release revu ; chaque dépôt relit ses mises à jour.
 
-Proposition à valider : staging après validation sur la branche principale de l'application, production par action manuelle à partir d'un digest validé en staging, previews sur les événements de PR.
+Modèle approuvé le 11/10/2026 et appliqué par `my-media` :
+
+- previews sur les PR non-draft du dépôt, détruites à la fermeture ;
+- staging après la CI verte de la branche principale ;
+- production par action manuelle approuvée, à partir des digests validés en staging.
+
+Spec côté application : `docs/superpowers/specs/2026-10-11-cicd-design.md` du dépôt `my-media`.
 
 Le socle ne contient aucun workflow qui reconstruit ou redéploie toutes les applications.

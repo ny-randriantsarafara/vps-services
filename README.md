@@ -13,7 +13,7 @@ Le vocabulaire (application, instance, preview, place de preview, admission) est
 - Une preview expire 72 heures après sa dernière livraison réussie ou son dernier renouvellement ; prod et staging n'expirent jamais.
 - Chaque instance a son réseau, ses volumes, ses secrets et ses données. Seul Caddy écoute sur 80/443 ; les applications publient sur `127.0.0.1` uniquement.
 - Les comptes de déploiement n'ont ni groupe `docker` ni sudo général : seulement `sudo -n /usr/local/sbin/vpsctl request`.
-- Les déploiements sont manuels. La CI de ce dépôt valide, elle ne déploie rien.
+- Les déploiements partent des dépôts applicatifs (poste ou CI de l'application, voir [CI/CD](docs/CICD.md)). La CI de ce dépôt valide, elle ne déploie rien.
 
 ## Structure
 
@@ -56,6 +56,7 @@ Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` éga
 | [CI/CD](docs/CICD.md) | Validation de ce dépôt, règles pour les déploiements applicatifs |
 | [Migration](docs/MIGRATION.md) | Retrait de l'ancienne stack Supabase et de ses workflows |
 | [Conception](docs/superpowers/specs/2026-10-11-ansible-vps-design.md) | Spécification et décisions |
+| [Routes multiples](docs/superpowers/specs/2026-10-11-multi-route-design.md) | Noms secondaires d'une instance, domaine `apps`, comptes `my-media` |
 
 ## État de validation
 
@@ -67,4 +68,4 @@ Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` éga
 | VM Debian 13 complète (systemd, reboot, idempotence) | Non exécuté |
 | VPS réel | Provisionné : bootstrap, `platform` deux fois (second passage sans changement), reboot, seuls 22/80/443 ouverts en IPv4/IPv6, filtrage `DOCKER-USER` vérifié |
 
-Aucun domaine applicatif n'est approuvé : `vps_domain` est vide et le contrôleur refuse toute route HTTP tant qu'il le reste.
+Domaine des instances : `apps.nyhasinavalona.com` (wildcard DNS `*.apps`, sans proxy Cloudflare). Application enregistrée : `my-media` (comptes `my-media-nonprod` et `my-media-prod`).
