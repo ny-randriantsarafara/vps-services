@@ -1,0 +1,44 @@
+---
+- name: Install the SSH hardening drop-in
+  block:
+    - name: Write the hardening drop-in
+      ansible.builtin.template:
+        src: hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/10-vps-platform.conf
+        owner: root
+        group: root
+        mode: "0644"
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Reload SSH
+
+    - name: Validate the complete SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+  rescue:
+    - name: Remove the rejected drop-in before any reload
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/10-vps-platform.conf
+        state: absent
+
+    - name: Stop without reloading an invalid SSH configuration
+      ansible.builtin.fail:
+        msg: La configuration SSH complète est invalide ; le service n'a pas été rechargé.
+
+- name: Apply the SSH configuration before the next connection test
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the effective SSH configuration
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: ssh_effective_configuration
+  changed_when: false
+  check_mode: false
+
+- name: Confirm key-only authentication without root login
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in ssh_effective_configuration.stdout_lines"
+      - "'passwordauthentication no' in ssh_effective_configuration.stdout_lines"
+      - "'kbdinteractiveauthentication no' in ssh_effective_configuration.stdout_lines"
+      - "'pubkeyauthentication yes' in ssh_effective_configuration.stdout_lines"
+    fail_msg: La configuration SSH effective ne correspond pas au durcissement attendu.
+  when: not ansible_check_mode

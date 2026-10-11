@@ -1,0 +1,38 @@
+---
+# Idempotent platform. It never starts an application container.
+- name: Configure the host, SSH and firewall
+  hosts: vps
+  become: true
+  gather_facts: true
+  roles:
+    - role: ny.vps.host
+      vars:
+        host_admin_user: "{{ vps_admin_user }}"
+        host_admin_public_keys: "{{ vps_admin_public_keys }}"
+    - role: ny.vps.ssh
+    - role: ny.vps.firewall
+
+- name: Prove a fresh administrator connection after SSH and firewall changes
+  hosts: vps
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Drop the previous connection
+      ansible.builtin.meta: reset_connection
+
+    - name: Connect again as the administrator
+      ansible.builtin.ping:
+
+- name: Install Docker, Caddy and the admission controller
+  hosts: vps
+  become: true
+  gather_facts: true
+  roles:
+    - role: ny.vps.docker
+    - role: ny.vps.ingress
+    - role: ny.vps.controller
+      vars:
+        controller_admin_user: "{{ vps_admin_user }}"
+        controller_domain: "{{ vps_domain }}"
+        controller_preview_limit: "{{ vps_preview_limit }}"
+        controller_deploy_accounts: "{{ vps_deploy_accounts }}"

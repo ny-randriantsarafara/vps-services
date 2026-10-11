@@ -1,0 +1,17 @@
+---
+# Replaced by the rendered delivery for apply and plan.
+app_rendered_delivery: {}
+app_deployment_operations:
+  - apply
+  - plan
+app_public_result_fields:
+  - instance
+  - status
+  - reason
+  - local_health
+  - http_status
+  - disk_warning
+  - runtime_present
+  - logs
+  - occupants
+  - audit

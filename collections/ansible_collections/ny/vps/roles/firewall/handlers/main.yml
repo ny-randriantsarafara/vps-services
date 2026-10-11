@@ -1,0 +1,6 @@
+---
+- name: Restart firewall
+  ansible.builtin.systemd_service:
+    name: vps-firewall
+    state: restarted
+    daemon_reload: true

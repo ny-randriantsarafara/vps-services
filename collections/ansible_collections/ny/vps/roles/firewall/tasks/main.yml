@@ -1,0 +1,78 @@
+---
+- name: Install iptables
+  ansible.builtin.apt:
+    name: iptables
+    state: present
+
+- name: Read the iptables backend
+  ansible.builtin.command:
+    argv: [/usr/sbin/iptables, --version]
+  register: firewall_iptables_version
+  changed_when: false
+  check_mode: false
+
+- name: Require the nftables backend used by Docker on Debian 13
+  ansible.builtin.assert:
+    that:
+      - "'nf_tables' in firewall_iptables_version.stdout"
+    fail_msg: iptables doit utiliser le backend nf_tables (iptables-nft).
+
+- name: Determine the public interfaces
+  ansible.builtin.set_fact:
+    firewall_public_interfaces: >-
+      {{ [ansible_facts['default_ipv4']['interface'] | default(''),
+          ansible_facts['default_ipv6']['interface'] | default('')] | select | unique }}
+
+- name: Require a public interface
+  ansible.builtin.assert:
+    that:
+      - firewall_public_interfaces | length > 0
+    fail_msg: Aucune interface publique détectée ; les règles DOCKER-USER ne peuvent pas être écrites.
+
+- name: Install the firewall script
+  ansible.builtin.template:
+    src: vps-firewall.sh.j2
+    dest: /usr/local/sbin/vps-firewall
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Restart firewall
+
+- name: Install the firewall unit
+  ansible.builtin.template:
+    src: vps-firewall.service.j2
+    dest: /etc/systemd/system/vps-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart firewall
+
+- name: Enable the firewall at boot, before the network and Docker
+  ansible.builtin.systemd_service:
+    name: vps-firewall
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply changed firewall rules before the next connection test
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the active IPv4 and IPv6 input rules
+  ansible.builtin.command:
+    argv: ["{{ item }}", -S, VPS-INPUT]
+  loop:
+    - /usr/sbin/iptables
+    - /usr/sbin/ip6tables
+  register: firewall_active_rules
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Confirm the input chains end with a drop
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines[-1] == '-A VPS-INPUT -j DROP'
+    fail_msg: La chaîne VPS-INPUT n'est pas active.
+  loop: "{{ firewall_active_rules.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not ansible_check_mode

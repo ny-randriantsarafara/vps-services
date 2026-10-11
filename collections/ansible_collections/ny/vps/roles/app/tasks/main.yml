@@ -1,0 +1,7 @@
+---
+- name: Render the delivery on the operator machine
+  ansible.builtin.import_tasks: render.yml
+  tags: [render]
+
+- name: Send the request to the VPS controller
+  ansible.builtin.import_tasks: request.yml

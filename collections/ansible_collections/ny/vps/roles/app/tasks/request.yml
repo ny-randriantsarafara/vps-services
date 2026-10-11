@@ -1,0 +1,28 @@
+---
+- name: Send one protocol version 1 request through sudo vpsctl
+  ny.vps.deploy_instance:
+    operation: "{{ app_operation }}"
+    application: "{{ app_application }}"
+    environment: "{{ app_environment }}"
+    pull_request: "{{ app_pull_request | default(omit, true) }}"
+    generation: "{{ app_generation | default(omit, true) }}"
+    compose: "{{ app_rendered_delivery.compose | default(omit) }}"
+    routes: "{{ app_rendered_delivery.routes | default(omit) }}"
+    storage_budget_gib: "{{ app_rendered_delivery.storage_budget_gib | default(omit) }}"
+    reopen: "{{ app_reopen }}"
+    tail: "{{ app_logs_tail }}"
+  register: app_controller_result
+  no_log: true
+  diff: false
+  ignore_errors: true
+
+- name: Report the controller decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ app_controller_result | dict2items
+         | selectattr('key', 'in', app_public_result_fields) | items2dict }}
+
+- name: Stop when the controller refused or failed the request
+  ansible.builtin.fail:
+    msg: "{{ app_controller_result.msg | default('vpsctl request failed') }}"
+  when: app_controller_result is failed

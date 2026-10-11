@@ -1,0 +1,16 @@
+---
+# Registers deploy identities from vps_deploy_accounts. It never starts an application container.
+- name: Register application deploy accounts
+  hosts: vps
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create the accounts and rewrite the admission policy
+      ansible.builtin.include_role:
+        name: ny.vps.controller
+        tasks_from: accounts
+      vars:
+        controller_admin_user: "{{ vps_admin_user }}"
+        controller_domain: "{{ vps_domain }}"
+        controller_preview_limit: "{{ vps_preview_limit }}"
+        controller_deploy_accounts: "{{ vps_deploy_accounts }}"

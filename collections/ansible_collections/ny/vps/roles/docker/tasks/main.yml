@@ -1,0 +1,89 @@
+---
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Docker APT signing key (fingerprint 9DC858229FC7DD38854AE2D88D81803C0EBFCD88)
+  ansible.builtin.copy:
+    src: docker.asc
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure the Docker APT repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: https://download.docker.com/linux/debian
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: [stable]
+    architectures: ["{{ docker_apt_architectures[ansible_facts['architecture']] }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
+
+- name: Install the pinned Docker Engine and Compose plugin
+  ansible.builtin.apt:
+    name: "{{ docker_apt_packages }}"
+    state: present
+    update_cache: true
+    install_recommends: false
+    allow_change_held_packages: true
+
+- name: Hold Docker packages until an explicit maintenance
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ docker_held_packages }}"
+
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure the Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/dockerd --validate --config-file %s
+  notify: Restart Docker
+
+- name: Enable Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Apply the daemon configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the running Docker versions
+  ansible.builtin.command:
+    argv: [/usr/bin/docker, version, --format, json]
+  register: docker_running_versions
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Read the Compose plugin version
+  ansible.builtin.command:
+    argv: [/usr/bin/docker, compose, version, --short]
+  register: docker_running_compose
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Confirm the pinned versions are running
+  ansible.builtin.assert:
+    that:
+      - (docker_running_versions.stdout | from_json)['Server']['Version'] == docker_engine_version
+      - docker_running_compose.stdout | trim == docker_compose_version
+    fail_msg: Les versions Docker en service ne correspondent pas aux versions épinglées.
+  when: not ansible_check_mode

@@ -1,0 +1,9 @@
+---
+collections:
+  # Smoke test from a vps-services checkout, run from the repository root.
+  # An application pins a reviewed release instead, by its full commit SHA:
+  #   - name: https://github.com/ny-randriantsarafara/vps-services.git#/collections/ansible_collections/ny/vps
+  #     type: git
+  #     version: <40-character SHA of the approved release commit>
+  - name: collections/ansible_collections/ny/vps
+    type: dir

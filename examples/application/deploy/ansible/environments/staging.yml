@@ -1,0 +1,9 @@
+---
+deploy_account: exemple-nonprod
+instance_limits:
+  web: {cpus: 0.2, memory_mib: 384, pids: 128}
+  db: {cpus: 0.2, memory_mib: 384, pids: 128}
+instance_storage_budget_gib: 3
+instance_loads_fixtures: false
+# Empty until a domain is approved. Then: [{hostname: "exemple-staging.<domain>", service: web, port: 3000}]
+instance_routes: []

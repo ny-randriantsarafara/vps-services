@@ -1,0 +1,65 @@
+# Rendered on the operator machine by ny.vps.app. Secrets come from a private file outside Git.
+{% set database_url = 'postgresql://exemple:' ~ (exemple_database_password | urlencode) ~ '@db:5432/exemple' %}
+services:
+  web:
+    image: {{ exemple_web_image | to_json }}
+    cpus: {{ instance_limits.web.cpus }}
+    mem_limit: "{{ instance_limits.web.memory_mib }}m"
+    memswap_limit: "{{ instance_limits.web.memory_mib }}m"
+    pids_limit: {{ instance_limits.web.pids }}
+    environment:
+      DATABASE_URL: {{ database_url | to_json }}
+    x-vps-required-environment: [DATABASE_URL]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      db: {condition: service_healthy}
+{% if instance_loads_fixtures %}
+      seed: {condition: service_completed_successfully}
+{% endif %}
+
+  db:
+    image: {{ exemple_database_image | to_json }}
+    # The controller drops every capability: the image entrypoint cannot switch user as root.
+    user: "70:70"
+    cpus: {{ instance_limits.db.cpus }}
+    mem_limit: "{{ instance_limits.db.memory_mib }}m"
+    memswap_limit: "{{ instance_limits.db.memory_mib }}m"
+    pids_limit: {{ instance_limits.db.pids }}
+    environment:
+      POSTGRES_USER: exemple
+      POSTGRES_DB: exemple
+      POSTGRES_PASSWORD: {{ exemple_database_password | to_json }}
+    x-vps-required-environment: [POSTGRES_PASSWORD]
+    volumes:
+      - data:/var/lib/postgresql/data
+    healthcheck:
+      # TCP only: the initialization server listens on the Unix socket before its restart.
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "exemple", "--dbname", "exemple"]
+      interval: 5s
+      timeout: 3s
+      start_period: 60s
+      retries: 10
+{% if instance_loads_fixtures %}
+
+  seed:
+    image: {{ exemple_web_image | to_json }}
+    x-vps-init: true
+    # Runs at every delivery: it loads the synthetic fixtures only into an empty database.
+    command: ["/app/bin/load-fixtures", "--if-empty"]
+    cpus: {{ instance_limits.seed.cpus }}
+    mem_limit: "{{ instance_limits.seed.memory_mib }}m"
+    memswap_limit: "{{ instance_limits.seed.memory_mib }}m"
+    pids_limit: {{ instance_limits.seed.pids }}
+    environment:
+      DATABASE_URL: {{ database_url | to_json }}
+    x-vps-required-environment: [DATABASE_URL]
+    depends_on:
+      db: {condition: service_healthy}
+{% endif %}
+
+volumes:
+  data: {}

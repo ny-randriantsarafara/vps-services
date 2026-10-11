@@ -1,0 +1,36 @@
+---
+- name: Require a pull request number for previews only
+  ansible.builtin.assert:
+    that:
+      - (app_environment == 'preview') == (app_pull_request is not none)
+    fail_msg: Une preview exige app_pull_request ; prod et staging n'en acceptent pas.
+
+- name: Require the delivery inputs of apply and plan
+  ansible.builtin.assert:
+    that:
+      - app_generation is not none
+      - app_compose_template is not none
+      - app_storage_budget_gib is not none
+    fail_msg: apply et plan exigent app_generation, app_compose_template et app_storage_budget_gib.
+  when: app_operation in app_deployment_operations
+
+- name: Render the Compose services from the application template
+  ansible.builtin.set_fact:
+    app_rendered_delivery:
+      compose: "{{ lookup('ansible.builtin.template', app_compose_template) | from_yaml }}"
+      routes: "{{ app_routes }}"
+      storage_budget_gib: "{{ app_storage_budget_gib | float }}"
+  no_log: true
+  when: app_operation in app_deployment_operations
+
+- name: Write the rendered delivery for local inspection
+  ansible.builtin.copy:
+    content: "{{ app_rendered_delivery | to_nice_json }}\n"
+    dest: "{{ app_render_output }}"
+    mode: "0600"
+  delegate_to: localhost
+  no_log: true
+  diff: false
+  when:
+    - app_render_output | length > 0
+    - app_operation in app_deployment_operations

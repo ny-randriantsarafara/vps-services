@@ -1,0 +1,69 @@
+---
+- name: Create deploy accounts without Docker or sudo group membership
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    home: "/home/{{ item.key }}"
+    shell: /bin/sh
+    create_home: true
+    password: "*"
+    groups: []
+    append: false
+  loop: "{{ controller_deploy_accounts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Create deploy account SSH directories
+  ansible.builtin.file:
+    path: "/home/{{ item.key }}/.ssh"
+    state: directory
+    owner: "{{ item.key }}"
+    group: "{{ item.key }}"
+    mode: "0700"
+  loop: "{{ controller_deploy_accounts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Install deploy keys without forwarding or terminal
+  ansible.builtin.copy:
+    dest: "/home/{{ item.key }}/.ssh/authorized_keys"
+    content: |
+      {% for public_key in item.value.public_keys %}
+      restrict {{ public_key }}
+      {% endfor %}
+    owner: "{{ item.key }}"
+    group: "{{ item.key }}"
+    mode: "0600"
+  loop: "{{ controller_deploy_accounts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Allow deploy accounts to run only the controller request
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: /etc/sudoers.d/vps-platform
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Write the admission policy
+  ansible.builtin.copy:
+    content: "{{ controller_policy | to_nice_json }}\n"
+    dest: /etc/vps-platform/policy.json
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read the controller status with the new policy
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/vpsctl, status]
+  register: controller_status
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Confirm vpsctl accepts the policy and reads the runtime
+  ansible.builtin.assert:
+    that:
+      - (controller_status.stdout | from_json)['status'] == 'status'
+    fail_msg: vpsctl refuse la politique ou ne lit pas l'état Docker ; voir sa sortie JSON.
+  when: not ansible_check_mode

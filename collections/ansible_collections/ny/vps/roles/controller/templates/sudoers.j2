@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+{% for account in controller_deploy_accounts %}
+{{ account }} ALL=(root) NOPASSWD: /usr/local/sbin/vpsctl request
+{% endfor %}

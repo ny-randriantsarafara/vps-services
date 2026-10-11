@@ -1,0 +1,27 @@
+---
+# Connexion : empreinte vérifiée hors bande, jamais acceptée à l'aveugle (docs/OPERATIONS.md).
+ansible_user: "{{ vps_admin_user }}"
+ansible_ssh_common_args: >-
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ inventory_dir }}/known_hosts
+
+# Accès initial fourni par OVH, utilisé uniquement par playbooks/bootstrap.yml.
+vps_initial_user: debian
+vps_revoke_initial_user_key: true
+
+# Administrateur non-root. Les clés publiques ne sont pas des secrets.
+vps_admin_user: vps-admin
+vps_admin_public_keys: []
+
+# Aucun domaine applicatif n'est approuvé : aucune route HTTP n'est acceptée.
+vps_domain: ""
+
+# Plafond global, toutes applications confondues.
+vps_preview_limit: 2
+
+# Comptes de déploiement des applications (playbooks/register-app.yml), par exemple :
+#   exemple-nonprod:
+#     application: exemple
+#     environments: [staging, preview]
+#     public_keys: ["ssh-ed25519 AAAA... ci@exemple"]
+vps_deploy_accounts: {}

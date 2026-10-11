@@ -1,0 +1,51 @@
+---
+argument_specs:
+  main:
+    short_description: Livrer ou gérer une instance d'application via vpsctl
+    description:
+      - Rend le Compose de l'application sur le poste, puis transmet une requête du protocole version 1.
+      - L'identité est celle du compte SSH de déploiement ; la requête ne la choisit pas.
+    options:
+      app_application:
+        description: Clé de l'application enregistrée sur le VPS.
+        type: str
+        required: true
+      app_environment:
+        description: Environnement de l'instance.
+        type: str
+        required: true
+        choices: [prod, staging, preview]
+      app_pull_request:
+        description: Numéro de pull request, obligatoire pour une preview seulement.
+        type: int
+      app_generation:
+        description: Génération de livraison, croissante pour une même instance.
+        type: int
+      app_operation:
+        description: Opération demandée au contrôleur. En mode check, apply devient plan.
+        type: str
+        default: apply
+        choices: [apply, plan, destroy, renew, status, logs]
+      app_compose_template:
+        description: Modèle Jinja du Compose de l'application, pour apply et plan.
+        type: path
+      app_routes:
+        description: Routes HTTP, chacune avec hostname, service et port.
+        type: list
+        elements: dict
+        default: []
+      app_storage_budget_gib:
+        description: Budget de croissance des données de l'instance, en GiB.
+        type: float
+      app_reopen:
+        description: Recréer explicitement une preview fermée.
+        type: bool
+        default: false
+      app_logs_tail:
+        description: Nombre de lignes pour l'opération logs.
+        type: int
+        default: 100
+      app_render_output:
+        description: Fichier local privé où écrire la livraison rendue ; vide pour ne rien écrire.
+        type: str
+        default: ""

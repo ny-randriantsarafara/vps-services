@@ -1,0 +1,15 @@
+---
+- name: Render the initial Caddy configuration of the ingress role
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load the ingress role defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/ingress/defaults/main.yml"
+
+    - name: Write the initial configuration
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/ingress/templates/vps-platform.json.j2"
+        dest: "{{ ingress_output }}"
+        mode: "0600"

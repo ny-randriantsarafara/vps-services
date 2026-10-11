@@ -1,0 +1,37 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Owns VPS-INPUT and DOCKER-USER only. Docker's own chains and NAT rules are never flushed.
+set -eu
+
+apply_rules() {
+  tool="$1"
+  icmp_protocol="$2"
+
+  "$tool" -w -N VPS-INPUT 2>/dev/null || true
+  "$tool" -w -F VPS-INPUT
+  "$tool" -w -A VPS-INPUT -i lo -j ACCEPT
+  "$tool" -w -A VPS-INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  "$tool" -w -A VPS-INPUT -m conntrack --ctstate INVALID -j DROP
+  "$tool" -w -A VPS-INPUT -p "$icmp_protocol" -j ACCEPT
+  "$tool" -w -A VPS-INPUT -p tcp -m multiport --dports {{ firewall_allowed_tcp_ports | join(',') }} -j ACCEPT
+  if [ "$tool" = iptables ]; then
+    "$tool" -w -A VPS-INPUT -p udp --sport 67 --dport 68 -j ACCEPT
+  else
+    "$tool" -w -A VPS-INPUT -p udp -s fe80::/10 --dport 546 -j ACCEPT
+  fi
+  "$tool" -w -A VPS-INPUT -j DROP
+  "$tool" -w -C INPUT -j VPS-INPUT 2>/dev/null || "$tool" -w -I INPUT 1 -j VPS-INPUT
+
+  # Applications publish on 127.0.0.1 only: nothing from the internet is forwarded to a container.
+  "$tool" -w -N DOCKER-USER 2>/dev/null || true
+  "$tool" -w -F DOCKER-USER
+  "$tool" -w -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+{% for interface in firewall_public_interfaces %}
+  "$tool" -w -A DOCKER-USER -i {{ interface }} -j DROP
+{% endfor %}
+  "$tool" -w -A DOCKER-USER -j RETURN
+}
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+apply_rules iptables icmp
+apply_rules ip6tables ipv6-icmp

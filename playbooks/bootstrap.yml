@@ -1,0 +1,67 @@
+---
+# Each play opens its own connection: a failed step stops before any access is removed.
+- name: Create the administrator through the initial OVH account
+  hosts: vps
+  become: true
+  gather_facts: true
+  vars:
+    ansible_user: "{{ vps_initial_user }}"
+  tasks:
+    - name: Require Debian 13
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] == '13'
+        fail_msg: Le socle est validé uniquement sur Debian 13.
+
+    - name: Create the administrator with its keys and sudo
+      ansible.builtin.include_role:
+        name: ny.vps.host
+        tasks_from: admin
+      vars:
+        host_admin_user: "{{ vps_admin_user }}"
+        host_admin_public_keys: "{{ vps_admin_public_keys }}"
+
+- name: Prove an independent administrator connection before hardening
+  hosts: vps
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Connect as the administrator
+      ansible.builtin.ping:
+
+    - name: Confirm sudo works for the administrator
+      ansible.builtin.command:
+        argv: [/usr/bin/id, -u]
+      register: bootstrap_admin_root
+      changed_when: false
+      failed_when: bootstrap_admin_root.stdout != '0'
+
+- name: Harden SSH as the administrator
+  hosts: vps
+  become: true
+  gather_facts: false
+  roles:
+    - role: ny.vps.ssh
+
+- name: Prove a fresh administrator connection after hardening
+  hosts: vps
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Drop the previous connection
+      ansible.builtin.meta: reset_connection
+
+    - name: Connect again as the administrator
+      ansible.builtin.ping:
+
+- name: Revoke the initial account key once the administrator access is proven
+  hosts: vps
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Remove the initial account SSH keys
+      ansible.builtin.file:
+        path: "/home/{{ vps_initial_user }}/.ssh/authorized_keys"
+        state: absent
+      when: vps_revoke_initial_user_key | bool

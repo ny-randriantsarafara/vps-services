@@ -1,0 +1,40 @@
+---
+# Example application "exemple". Usage: docs/APP-CONTRACT.md.
+- name: Deliver an instance of the exemple application
+  hosts: vps
+  gather_facts: false
+  vars_files:
+    - "environments/{{ target_environment }}.yml"
+  vars:
+    delivery_operation: "{{ operation | default('apply') }}"
+    # Digest read from docker.io on 2026-10-11.
+    exemple_database_image: >-
+      docker.io/library/postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+  pre_tasks:
+    - name: Require the delivery inputs
+      ansible.builtin.assert:
+        that:
+          - release_generation | int > 0
+          - exemple_web_image is ansible.builtin.match('^[^@\s]+@sha256:[a-f0-9]{64}$')
+        fail_msg: Fournir release_generation et exemple_web_image (image publiée, par digest).
+      when: delivery_operation in ['apply', 'plan']
+      tags: [always]
+
+    - name: Require the private secrets of this instance
+      ansible.builtin.assert:
+        that:
+          - exemple_database_password | default('') | length >= 24
+        fail_msg: Fournir exemple_database_password depuis un fichier privé (-e @/chemin/prive.yml).
+      when: delivery_operation in ['apply', 'plan']
+      tags: [always]
+  roles:
+    - role: ny.vps.app
+      vars:
+        app_application: exemple
+        app_environment: "{{ target_environment }}"
+        app_pull_request: "{{ pull_request_number | default(none) }}"
+        app_generation: "{{ release_generation | default(none) }}"
+        app_operation: "{{ delivery_operation }}"
+        app_compose_template: "{{ playbook_dir }}/../compose.yml.j2"
+        app_routes: "{{ instance_routes }}"
+        app_storage_budget_gib: "{{ instance_storage_budget_gib }}"

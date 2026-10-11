@@ -1,0 +1,6 @@
+---
+# Version read from dl.cloudsmith.io/public/caddy/stable (any-version) on 2026-10-11.
+ingress_caddy_version: "2.11.7"
+# vpsctl reads the same paths from its defaults (vps_platform/policy.py).
+ingress_config_path: /etc/caddy/vps-platform.json
+ingress_admin_socket: /run/caddy/admin.sock

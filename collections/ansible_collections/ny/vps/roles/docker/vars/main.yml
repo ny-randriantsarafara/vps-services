@@ -1,0 +1,14 @@
+---
+docker_apt_packages:
+  - "docker-ce=5:{{ docker_engine_version }}-1~debian.13~trixie"
+  - "docker-ce-cli=5:{{ docker_engine_version }}-1~debian.13~trixie"
+  - "containerd.io={{ docker_containerd_package_version }}"
+  - "docker-compose-plugin={{ docker_compose_version }}-1~debian.13~trixie"
+docker_held_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin
+docker_apt_architectures:
+  x86_64: amd64
+  aarch64: arm64

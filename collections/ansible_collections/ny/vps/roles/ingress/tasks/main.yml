@@ -1,0 +1,106 @@
+---
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Caddy APT signing key (fingerprint 65760C51EDEA2017CEA2CA15155B6D79CA56EA34)
+  ansible.builtin.copy:
+    src: caddy.asc
+    dest: /etc/apt/keyrings/caddy.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure the Caddy APT repository
+  ansible.builtin.deb822_repository:
+    name: caddy
+    types: [deb]
+    uris: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+    suites: [any-version]
+    components: [main]
+    signed_by: /etc/apt/keyrings/caddy.asc
+
+- name: Install the pinned Caddy
+  ansible.builtin.apt:
+    name: "caddy={{ ingress_caddy_version }}"
+    state: present
+    update_cache: true
+    install_recommends: false
+    allow_change_held_packages: true
+
+- name: Hold Caddy until an explicit maintenance
+  ansible.builtin.dpkg_selections:
+    name: caddy
+    selection: hold
+
+- name: Keep the Caddy configuration directory readable by the caddy service
+  ansible.builtin.file:
+    path: "{{ ingress_config_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the initial configuration that vpsctl takes over
+  ansible.builtin.template:
+    src: vps-platform.json.j2
+    dest: "{{ ingress_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  notify: Restart Caddy
+
+- name: Create the Caddy unit drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Run Caddy from the platform configuration with a Unix admin socket
+  ansible.builtin.template:
+    src: caddy-override.conf.j2
+    dest: /etc/systemd/system/caddy.service.d/vps-platform.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Caddy
+
+- name: Enable Caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply the Caddy unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the running Caddy version
+  ansible.builtin.command:
+    argv: [/usr/bin/caddy, version]
+  register: ingress_running_version
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Read the admin socket
+  ansible.builtin.stat:
+    path: "{{ ingress_admin_socket }}"
+  register: ingress_admin_socket_state
+  when: not ansible_check_mode
+
+- name: Confirm the pinned Caddy runs with a private admin socket
+  ansible.builtin.assert:
+    that:
+      - ingress_running_version.stdout is ansible.builtin.search('^v' ~ (ingress_caddy_version | regex_escape) ~ '\\b')
+      - ingress_admin_socket_state.stat.issock
+      - not ingress_admin_socket_state.stat.roth
+      - not ingress_admin_socket_state.stat.woth
+    fail_msg: Caddy ne tourne pas dans la version épinglée ou son socket d'administration est exposé.
+  when: not ansible_check_mode

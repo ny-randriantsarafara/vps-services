@@ -1,0 +1,40 @@
+---
+- name: Require at least one administrator public key
+  ansible.builtin.assert:
+    that:
+      - host_admin_public_keys | length > 0
+    fail_msg: Renseigner vps_admin_public_keys dans l'inventaire avant de configurer l'accès.
+
+- name: Create the administrator account
+  ansible.builtin.user:
+    name: "{{ host_admin_user }}"
+    home: "/home/{{ host_admin_user }}"
+    shell: /bin/bash
+    create_home: true
+    # No usable password: SSH keys only, and "*" is not a locked account for sshd.
+    password: "*"
+
+- name: Create the administrator SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ host_admin_user }}/.ssh"
+    state: directory
+    owner: "{{ host_admin_user }}"
+    group: "{{ host_admin_user }}"
+    mode: "0700"
+
+- name: Install the administrator public keys
+  ansible.builtin.copy:
+    dest: "/home/{{ host_admin_user }}/.ssh/authorized_keys"
+    content: "{{ host_admin_public_keys | join('\n') }}\n"
+    owner: "{{ host_admin_user }}"
+    group: "{{ host_admin_user }}"
+    mode: "0600"
+
+- name: Allow the administrator to use sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/vps-admin
+    content: "{{ host_admin_user }} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s

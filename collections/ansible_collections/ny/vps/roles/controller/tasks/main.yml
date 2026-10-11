@@ -1,0 +1,68 @@
+---
+- name: Create the controller library directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ controller_library_dir }}"
+    - "{{ controller_library_dir }}/vps_platform"
+    - /etc/vps-platform
+    - /srv/vps
+
+- name: Create the private state and instance directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: "{{ controller_private_directories }}"
+
+- name: Install the controller modules
+  ansible.builtin.copy:
+    src: "vps_platform/{{ item }}"
+    dest: "{{ controller_library_dir }}/vps_platform/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ controller_modules }}"
+
+- name: Install the controller launcher
+  ansible.builtin.copy:
+    src: launcher.py
+    dest: "{{ controller_library_dir }}/launcher.py"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install vpsctl
+  ansible.builtin.copy:
+    src: vpsctl
+    dest: /usr/local/sbin/vpsctl
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Register deploy accounts and the admission policy
+  ansible.builtin.import_tasks: accounts.yml
+
+- name: Install the maintenance units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - vps-platform-maintenance.service
+    - vps-platform-maintenance.timer
+
+- name: Run maintenance every five minutes
+  ansible.builtin.systemd_service:
+    name: vps-platform-maintenance.timer
+    enabled: true
+    state: started
+    daemon_reload: true

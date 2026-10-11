@@ -1,0 +1,4 @@
+---
+host_admin_user: vps-admin
+host_admin_public_keys: []
+host_journal_max_use: 500M

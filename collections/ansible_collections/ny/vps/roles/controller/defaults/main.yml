@@ -1,0 +1,6 @@
+---
+controller_admin_user: vps-admin
+controller_domain: ""
+controller_preview_limit: 2
+# Account name -> {application, environments, public_keys}.
+controller_deploy_accounts: {}

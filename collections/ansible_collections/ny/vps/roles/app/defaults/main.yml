@@ -1,0 +1,11 @@
+---
+app_operation: apply
+app_pull_request:
+app_generation:
+app_compose_template:
+app_routes: []
+app_storage_budget_gib:
+app_reopen: false
+app_logs_tail: 100
+# Non-empty: write the rendered delivery to this private local file (0600) for inspection.
+app_render_output: ""

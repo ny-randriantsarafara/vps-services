@@ -1,0 +1,50 @@
+---
+- name: Require Debian 13
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Debian'
+      - ansible_facts['distribution_major_version'] == '13'
+    fail_msg: Le socle est validé uniquement sur Debian 13.
+
+- name: Configure the administrator
+  ansible.builtin.import_tasks: admin.yml
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - python3
+      - sudo
+      - unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable automatic security updates without automatic reboot
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Bound the system journal
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-vps-platform.conf
+    content: |
+      [Journal]
+      SystemMaxUse={{ host_journal_max_use }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald

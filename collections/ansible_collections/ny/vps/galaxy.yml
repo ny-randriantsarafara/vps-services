@@ -1,0 +1,16 @@
+---
+namespace: ny
+name: vps
+version: 1.0.0
+readme: README.md
+authors:
+  - Nyhasina Randriantsarafara
+description: Socle d'un VPS unique et contrat de déploiement des applications, protocole version 1.
+repository: https://github.com/ny-randriantsarafara/vps-services
+tags:
+  - infrastructure
+  - linux
+dependencies: {}
+build_ignore:
+  - "**/__pycache__"
+  - "**/*.pyc"

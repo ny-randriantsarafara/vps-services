@@ -1,0 +1,29 @@
+---
+controller_library_dir: /usr/local/lib/vps-platform
+controller_modules:
+  - __init__.py
+  - cli.py
+  - compose.py
+  - controller.py
+  - policy.py
+  - runtime.py
+  - state.py
+controller_private_directories:
+  - /var/lib/vps-platform
+  - /srv/vps/apps
+# Public keys stay in authorized_keys; the policy only maps accounts to applications.
+controller_policy_accounts: >-
+  {{ dict(controller_deploy_accounts.keys()
+     | zip(controller_deploy_accounts.values()
+           | map('dict2items')
+           | map('selectattr', 'key', 'in', ['application', 'environments'])
+           | map('list')
+           | map('items2dict'))) }}
+# The maintenance timer runs as root without sudo, so root is an administrator.
+controller_policy:
+  accounts: "{{ controller_policy_accounts }}"
+  administrators:
+    - "{{ controller_admin_user }}"
+    - root
+  domain: "{{ controller_domain }}"
+  preview_limit: "{{ controller_preview_limit | int }}"

@@ -1,0 +1,7 @@
+{{ {
+  'admin': {'listen': 'unix/' ~ ingress_admin_socket},
+  'apps': {'http': {'servers': {'platform': {
+    'listen': [':443'],
+    'routes': [{'handle': [{'handler': 'static_response', 'status_code': 404}], 'terminal': true}]
+  }}}}
+} | to_nice_json }}

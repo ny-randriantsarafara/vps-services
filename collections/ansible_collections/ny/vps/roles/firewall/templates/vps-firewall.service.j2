@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=VPS platform firewall rules (IPv4 and IPv6)
+DefaultDependencies=no
+Wants=network-pre.target
+After=local-fs.target systemd-modules-load.service
+Before=network-pre.target docker.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/vps-firewall
+
+[Install]
+WantedBy=multi-user.target

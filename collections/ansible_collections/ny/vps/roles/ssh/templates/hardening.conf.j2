@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# sshd keeps the first value it reads: this file sorts before other drop-ins such as cloud-init.
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AuthenticationMethods publickey
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2

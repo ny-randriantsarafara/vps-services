@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+[Service]
+ExecStart=
+ExecStart=/usr/bin/caddy run --environ --config {{ ingress_config_path }}
+ExecReload=
+ExecReload=/usr/bin/caddy reload --config {{ ingress_config_path }} --address unix/{{ ingress_admin_socket }} --force
+RuntimeDirectory={{ ingress_admin_socket | dirname | basename }}
+RuntimeDirectoryMode=0750
+UMask=0007
