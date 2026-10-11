@@ -65,6 +65,6 @@ Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` éga
 | Configurations générées (sshd, dockerd, iptables-nft, Caddy) | Validées avec les outils épinglés en conteneurs |
 | Docker local (`make integration`) | Exécuté : deux previews, troisième refusée, données distinctes, limites effectives, mise à jour, nettoyage ciblé |
 | VM Debian 13 complète (systemd, reboot, idempotence) | Non exécuté |
-| VPS réel | Non provisionné : l'accès initial `debian` reste bloqué par le changement de mot de passe OVH |
+| VPS réel | Provisionné : bootstrap, `platform` deux fois (second passage sans changement), reboot, seuls 22/80/443 ouverts en IPv4/IPv6, filtrage `DOCKER-USER` vérifié |
 
 Aucun domaine applicatif n'est approuvé : `vps_domain` est vide et le contrôleur refuse toute route HTTP tant qu'il le reste.

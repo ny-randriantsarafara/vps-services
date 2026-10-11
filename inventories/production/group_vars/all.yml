@@ -11,7 +11,8 @@ vps_revoke_initial_user_key: true
 
 # Administrateur non-root. Les clés publiques ne sont pas des secrets.
 vps_admin_user: vps-admin
-vps_admin_public_keys: []
+vps_admin_public_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGc8Nt0ptrQRnBuH+8a0sVqQoap/gRyaIGrdJ4EkHMVX vps-admin@vps-d9d9aca9"
 
 # Aucun domaine applicatif n'est approuvé : aucune route HTTP n'est acceptée.
 vps_domain: ""
