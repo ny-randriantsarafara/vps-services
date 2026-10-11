@@ -4,3 +4,9 @@ controller_domain: ""
 controller_preview_limit: 2
 # Account name -> {application, environments, public_keys}.
 controller_deploy_accounts: {}
+# Admission budgets, vCPU / MiB: every instance of an environment together, and one preview.
+controller_budgets:
+  prod: {cpus: 1.5, memory_mib: 3072}
+  staging: {cpus: 0.5, memory_mib: 1024}
+  preview: {cpus: 1, memory_mib: 2048}
+controller_preview_instance_budget: {cpus: 0.5, memory_mib: 1024}
