@@ -59,7 +59,7 @@ Ces plafonds sont des règles d'admission : ils ne réservent pas matériellemen
 
 ## Livraison
 
-`pull` → réserve disque → services démarrés dans l'ordre des dépendances (`up --no-deps --wait`), jobs d'initialisation en `run --rm` → contrôle des valeurs effectives par `docker inspect` (limites, `cap_drop: ALL`, `no-new-privileges`, réseau de l'instance, montages, ports loopback) → santé Docker → probe HTTP loopback → publication de la route Caddy → probe public. Les conteneurs de services retirés de la livraison sont supprimés.
+`pull` → réserve disque → services démarrés dans l'ordre des dépendances (`up --no-deps --wait`), jobs d'initialisation en `run --rm` → contrôle des valeurs effectives par `docker inspect` (limites, `cap_drop: ALL`, `no-new-privileges`, réseau de l'instance, montages, ports loopback) → santé Docker → probe HTTP loopback de chaque route → publication des routes Caddy → probe public. Les conteneurs de services retirés de la livraison sont supprimés.
 
 Une mise à jour remplace les conteneurs : une interruption est possible, aucun zéro downtime n'est promis. Un échec laisse l'instance en `failed` avec sa réservation, sans restauration automatique.
 
@@ -72,7 +72,7 @@ Une mise à jour remplace les conteneurs : une interruption est possible, aucun 
 | Volumes | `vps-<instance>-<nom>`, déclarés par l'instance ; aucun bind mount |
 | Conteneurs | `cap_drop: ALL`, `no-new-privileges`, limites CPU/mémoire/swap/PID, pas de privilège ni namespace hôte |
 | Ports | `127.0.0.1:<port loué>` uniquement, plage 20000–29999 attribuée par le contrôleur |
-| HTTP | Une route par instance, nom dérivé de l'instance ; route inconnue : 404 neutre |
+| HTTP | Nom principal dérivé de l'instance et noms d'un label au-dessous (`cms.<instance>…`) ; route inconnue : 404 neutre |
 
 Caddy écoute les applications sur `:443` seulement. Le port 80 reste à son HTTPS automatique : défis ACME et redirection vers HTTPS. Aucune application n'est servie en clair.
 

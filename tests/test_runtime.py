@@ -355,6 +355,31 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["status"], "refused")
         self.assertNotIn("secret", process.stdout + process.stderr)
 
+    def test_every_route_of_the_instance_is_probed_before_and_after_publication(self):
+        self.policy.data["domain"] = "apps.example.net"
+        routes = [
+            {
+                "hostname": hostname,
+                "service": "web",
+                "port": 3000,
+                "upstream": "127.0.0.1:" + port,
+            }
+            for hostname, port in [
+                ("alpha-pr-1.apps.example.net", "20000"),
+                ("cms.alpha-pr-1.apps.example.net", "20001"),
+                ("beta-pr-2.apps.example.net", "20002"),
+            ]
+        ]
+        probed = []
+        self.runtime.http_probe = lambda route: probed.append(route["hostname"]) or True
+        self.runtime.public_probe = lambda route: not route["hostname"].startswith("beta")
+        result = self.runtime.apply("alpha-pr-1", self.path, routes, STORAGE_BUDGET_GIB)
+        self.assertEqual(probed, ["alpha-pr-1.apps.example.net", "cms.alpha-pr-1.apps.example.net"])
+        self.assertEqual(result["http_status"], "ready")
+        self.runtime.public_probe = lambda route: not route["hostname"].startswith("cms.")
+        result = self.runtime.apply("alpha-pr-1", self.path, routes, STORAGE_BUDGET_GIB)
+        self.assertEqual(result["http_status"], "unreachable")
+
     def test_loopback_http_readiness_failure_never_publishes_routes(self):
         self.policy.data["domain"] = "apps.example.net"
         route = {

@@ -89,20 +89,23 @@ Un service `x-vps-init: true` s'exécute avec `docker compose run --rm` avant le
 
 Tant que `vps_domain` est vide sur le VPS, toute route est refusée : l'instance reste accessible par ses seuls ports loopback, et `http_status` vaut `unconfigured`.
 
-Une instance a au plus une route, de nom imposé :
+Une instance publie son nom principal et, si besoin, des noms d'un label au-dessous. Chaque nom au plus une fois, jusqu'à 16 routes :
 
-| Instance | Nom |
-| --- | --- |
-| `exemple-prod` | `exemple.<domaine>` |
-| `exemple-staging` | `exemple-staging.<domaine>` |
-| `exemple-pr-42` | `exemple-pr-42.<domaine>` |
+| Instance | Nom principal | Noms secondaires |
+| --- | --- | --- |
+| `exemple-prod` | `exemple.<domaine>` | `<préfixe>.exemple.<domaine>` |
+| `exemple-staging` | `exemple-staging.<domaine>` | `<préfixe>.exemple-staging.<domaine>` |
+| `exemple-pr-42` | `exemple-pr-42.<domaine>` | `<préfixe>.exemple-pr-42.<domaine>` |
+
+`<préfixe>` est un seul label : une lettre minuscule puis au plus 31 lettres minuscules ou chiffres (`cms`, `api`). Deux instances ont des noms principaux distincts, donc aucune ne peut publier un nom d'une autre. Un cookie posé sur le nom principal (`Domain=exemple-pr-42.<domaine>`) couvre ses noms secondaires sans sortir de l'instance. Un wildcard DNS `*.<domaine>` couvre les deux niveaux.
 
 ```yaml
 app_routes:
   - {hostname: exemple-pr-42.apps.example.net, service: web, port: 3000}
+  - {hostname: api.exemple-pr-42.apps.example.net, service: api, port: 8080}
 ```
 
-`port` est le port du conteneur. Le contrôleur loue un port `127.0.0.1` dans 20000–29999, le conserve aux mises à jour et ne le partage jamais. La route est publiée après la readiness locale, en HTTPS seulement.
+`port` est le port du conteneur. Le contrôleur loue un port `127.0.0.1` par route dans 20000–29999, le conserve aux mises à jour et ne le partage jamais. Toutes les routes de l'instance doivent répondre en loopback avant publication ; `http_status` vaut `ready` quand toutes répondent publiquement, en HTTPS seulement.
 
 ## Générations
 

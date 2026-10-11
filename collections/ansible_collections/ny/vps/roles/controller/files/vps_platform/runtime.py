@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, public_hostname
+from .compose import INIT_PROFILE, LABEL_PREFIX, is_instance_hostname, memory_mib
 from .policy import Policy
 from .state import replace_json
 
@@ -402,8 +402,10 @@ class Runtime:
         self._docker(resource["kind"], "rm", resource["id"], timeout=60)
 
     def _own_routes(self, instance, routes):
-        hostname = public_hostname(instance, self.policy["domain"])
-        return [route for route in routes if route["hostname"] == hostname]
+        domain = self.policy["domain"]
+        return [
+            route for route in routes if is_instance_hostname(route["hostname"], instance, domain)
+        ]
 
     def _public_status(self, own_routes):
         if not own_routes:

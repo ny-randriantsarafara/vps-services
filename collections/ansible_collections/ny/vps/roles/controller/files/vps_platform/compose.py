@@ -31,6 +31,7 @@ PLATFORM_EXTENSIONS = ("x-vps-init", "x-vps-required-environment")
 HEALTHCHECK_FIELDS = {"test", "interval", "timeout", "start_period", "retries"}
 MOUNT_FIELDS = {"type", "source", "target", "read_only"}
 ROUTE_FIELDS = {"hostname", "service", "port"}
+ROUTE_PREFIX = re.compile(r"[a-z][a-z0-9]{0,31}\Z")
 RESTART_POLICIES = ("no", "on-failure", "unless-stopped")
 DEPENDENCY_CONDITIONS = ("service_healthy", "service_completed_successfully")
 MAX_SERVICES = 16
@@ -71,6 +72,15 @@ def labels(instance):
 def public_hostname(instance, domain):
     """Production answers on the application name; other instances on their instance name."""
     return instance.removesuffix("-prod") + "." + domain
+
+
+def is_instance_hostname(hostname, instance, domain):
+    """The primary hostname, or one DNS label prepended to it: never another instance's name."""
+    if not isinstance(hostname, str) or not domain:
+        return False
+    primary = public_hostname(instance, domain)
+    prefix, _, rest = hostname.partition(".")
+    return hostname == primary or (rest == primary and bool(ROUTE_PREFIX.fullmatch(prefix)))
 
 
 def is_name(value):
@@ -338,7 +348,6 @@ def published_ports(name, routes):
 def allocate_routes(routes, policy, instance, existing, services):
     if not isinstance(routes, list) or len(routes) > MAX_ROUTES:
         raise Refused("invalid routes")
-    hostname = public_hostname(instance, policy["domain"])
     previous = existing.get(instance, {}).get("routes", [])
     occupied = {
         upstream_port(route)
@@ -348,20 +357,19 @@ def allocate_routes(routes, policy, instance, existing, services):
     }
     allocated = []
     for route in routes:
-        require_instance_route(route, policy, hostname, services, allocated)
+        require_instance_route(route, policy, instance, services, allocated)
         taken = occupied | {upstream_port(item) for item in allocated}
         port = reused_port(previous, route) or free_port(policy, taken)
         allocated.append({**route, "upstream": "127.0.0.1:" + port})
     return allocated
 
 
-def require_instance_route(route, policy, hostname, services, allocated):
+def require_instance_route(route, policy, instance, services, allocated):
     if (
         not isinstance(route, dict)
         or set(route) != ROUTE_FIELDS
-        or not policy["domain"]
-        or route["hostname"] != hostname
-        or any(item["hostname"] == hostname for item in allocated)
+        or not is_instance_hostname(route["hostname"], instance, policy["domain"])
+        or any(item["hostname"] == route["hostname"] for item in allocated)
     ):
         raise Refused("route hostname must belong to this instance namespace")
     if (
