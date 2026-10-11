@@ -20,6 +20,15 @@ vps_domain: apps.nyhasinavalona.com
 # Plafond global, toutes applications confondues.
 vps_preview_limit: 2
 
+# Budgets d'admission (vCPU / MiB), toutes instances d'un environnement réunies, puis une preview.
+# Le CPU n'est pas réservé : 4 vCPU sur l'hôte. Directus démarre en plus de 120 s sous 0,2 vCPU
+# (mesuré le 11/10/2026), d'où 1 vCPU par preview et pour les stagings. La mémoire reste inchangée.
+vps_budgets:
+  prod: {cpus: 1.5, memory_mib: 3072}
+  staging: {cpus: 1, memory_mib: 1024}
+  preview: {cpus: 2, memory_mib: 2048}
+vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
+
 # Comptes de déploiement des applications (playbooks/register-app.yml), par exemple :
 #   exemple-nonprod:
 #     application: exemple
