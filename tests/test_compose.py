@@ -177,6 +177,65 @@ class ComposeTests(unittest.TestCase):
                     self.render()
                 self.assertEqual(str(caught.exception), reason)
 
+    def test_an_instance_routes_its_hostname_and_one_label_below_it(self):
+        self.policy.data["domain"] = "apps.example.net"
+        services = self.payload["compose"]["services"]
+        services["cms"] = copy.deepcopy(services["web"])
+        self.payload["routes"] = [
+            {"hostname": "alpha-pr-1.apps.example.net", "service": "web", "port": 3000},
+            {"hostname": "cms.alpha-pr-1.apps.example.net", "service": "cms", "port": 8055},
+        ]
+        compose, _, routes = self.render()
+        self.assertEqual(
+            [(route["hostname"], route["upstream"]) for route in routes],
+            [
+                ("alpha-pr-1.apps.example.net", "127.0.0.1:20000"),
+                ("cms.alpha-pr-1.apps.example.net", "127.0.0.1:20001"),
+            ],
+        )
+        self.assertEqual(compose["services"]["cms"]["ports"][0]["target"], 8055)
+        self.payload["routes"] = [
+            {"hostname": "alpha.apps.example.net", "service": "web", "port": 3000},
+            {"hostname": "cms.alpha.apps.example.net", "service": "cms", "port": 8055},
+        ]
+        _, _, routes = normalize(self.payload, self.policy, "alpha-prod", {})
+        self.assertEqual(len(routes), 2)
+
+    def test_routes_outside_the_instance_namespace_are_refused(self):
+        self.policy.data["domain"] = "apps.example.net"
+        for hostname in [
+            "beta-pr-1.apps.example.net",
+            "cms.beta-pr-1.apps.example.net",
+            "a.cms.alpha-pr-1.apps.example.net",
+            "cms-api.alpha-pr-1.apps.example.net",
+            "Cms.alpha-pr-1.apps.example.net",
+            "1cms.alpha-pr-1.apps.example.net",
+            ".alpha-pr-1.apps.example.net",
+            "alpha-pr-1-cms.apps.example.net",
+            "cms.alpha-pr-1.apps.example.net.evil.test",
+            ["alpha-pr-1.apps.example.net"],
+        ]:
+            with self.subTest(hostname=hostname):
+                self.payload["routes"] = [{"hostname": hostname, "service": "web", "port": 3000}]
+                with self.assertRaises(Refused) as caught:
+                    self.render()
+                self.assertEqual(
+                    str(caught.exception), "route hostname must belong to this instance namespace"
+                )
+
+    def test_a_hostname_is_routed_once_and_only_with_a_domain(self):
+        route = {"hostname": "cms.alpha-pr-1.apps.example.net", "service": "web", "port": 3000}
+        self.payload["routes"] = [route]
+        with self.assertRaises(Refused):
+            self.render()
+        self.policy.data["domain"] = "apps.example.net"
+        self.payload["routes"] = [route, {**route, "port": 3001}]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(
+            str(caught.exception), "route hostname must belong to this instance namespace"
+        )
+
     def test_loopback_ports_are_kept_on_update_and_never_shared(self):
         self.policy.data.update(domain="apps.example.net", port_start=20000, port_end=20001)
         self.payload["routes"] = [
