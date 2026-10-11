@@ -29,3 +29,5 @@ controller_policy:
   preview_limit: "{{ controller_preview_limit | int }}"
   budgets: "{{ controller_budgets }}"
   preview_instance_budget: "{{ controller_preview_instance_budget }}"
+  instance_hostnames: "{{ controller_instance_hostnames | default({}) }}"
+  onboarding_guards: "{{ controller_onboarding_guards | default({}) }}"

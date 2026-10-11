@@ -24,7 +24,7 @@ vps_preview_limit: 2
 # Le CPU n'est pas réservé : 4 vCPU sur l'hôte. Directus démarre en plus de 120 s sous 0,2 vCPU
 # (mesuré le 11/10/2026), d'où 1 vCPU par preview et pour les stagings. La mémoire reste inchangée.
 vps_budgets:
-  prod: {cpus: 1.5, memory_mib: 3072}
+  prod: {cpus: 2.25, memory_mib: 4096}
   staging: {cpus: 1, memory_mib: 1024}
   preview: {cpus: 2, memory_mib: 2048}
 vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
@@ -45,3 +45,15 @@ vps_deploy_accounts:
     environments: [prod]
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMl06TMSHn8mQCu+1CjXaamlGi/RySlF+dvT5rSShd8e github-actions@my-media-prod"
+  home-assistant-prod:
+    application: home-assistant
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKm6yXaK91C3lzoadHyUiKByKuXvAzQCkSreh9meqq53 deploy@home-assistant-prod"
+
+# Alias administrateur exact ; les applications ne peuvent pas réclamer un autre nom.
+vps_instance_hostnames:
+  home-assistant-prod: [home-assistant.nyhasinavalona.com]
+# Fermé tant que le propriétaire n'a pas créé son compte par tunnel SSH.
+vps_onboarding_guards:
+  home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}

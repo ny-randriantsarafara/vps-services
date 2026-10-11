@@ -16,3 +16,5 @@
         controller_deploy_accounts: "{{ vps_deploy_accounts }}"
         controller_budgets: "{{ vps_budgets }}"
         controller_preview_instance_budget: "{{ vps_preview_instance_budget }}"
+        controller_instance_hostnames: "{{ vps_instance_hostnames | default({}) }}"
+        controller_onboarding_guards: "{{ vps_onboarding_guards | default({}) }}"

@@ -28,6 +28,8 @@ def parser():
     commands.add_parser("request")
     commands.add_parser("status")
     commands.add_parser("cleanup")
+    ingress = commands.add_parser("ingress").add_subparsers(dest="ingress_command", required=True)
+    ingress.add_parser("refresh")
     previews = commands.add_parser("previews").add_subparsers(dest="preview_command", required=True)
     previews.add_parser("list")
     for name in ("destroy", "renew"):
@@ -132,6 +134,8 @@ def run_command(controller, arguments, payload, actor):
     controller.policy.authorize(actor, admin=True)
     if arguments.command == "status":
         return controller.status(actor)
+    if arguments.command == "ingress":
+        return controller.refresh_ingress(actor)
     if arguments.command == "cleanup":
         return controller.cleanup(actor)
     if arguments.command == "previews" and arguments.preview_command == "list":
