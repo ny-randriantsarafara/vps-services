@@ -14,6 +14,8 @@ class Refused(ValueError):
 
 DEFAULTS = {
     "accounts": {},
+    "instance_hostnames": {},
+    "onboarding_guards": {},
     "administrators": [],
     "domain": "",
     "preview_limit": 2,
@@ -98,6 +100,7 @@ class Policy:
                 raise Refused("invalid host environments")
             if "prod" in account["environments"] and len(account["environments"]) != 1:
                 raise Refused("production identity must be separate")
+        self._validate_ingress()
         for budget in [*self.data["budgets"].values(), self.data["preview_instance_budget"]]:
             if set(budget) != {"cpus", "memory_mib"} or not all(
                 positive_number(v) for v in budget.values()
@@ -108,6 +111,70 @@ class Policy:
             for key in ("minimum_free_disk_gib", "minimum_free_memory_mib")
         ):
             raise Refused("invalid host budget")
+
+    def _validate_ingress(self):
+        from .compose import is_instance_hostname
+
+        aliases = self["instance_hostnames"]
+        guards = self["onboarding_guards"]
+        if not isinstance(aliases, dict) or not isinstance(guards, dict):
+            raise Refused("invalid host ingress policy")
+        applications = {account["application"] for account in self["accounts"].values()}
+        owners = {}
+        for instance, hostnames in aliases.items():
+            if (
+                not isinstance(instance, str)
+                or not re.fullmatch(r"[a-z][a-z0-9-]*-(?:prod|staging|pr-[1-9][0-9]*)", instance)
+                or not isinstance(hostnames, list)
+            ):
+                raise Refused("invalid instance hostname policy")
+            application = re.sub(r"-(?:prod|staging|pr-[0-9]+)$", "", instance)
+            if not is_application_name(application):
+                raise Refused("invalid instance hostname policy")
+            applications.add(application)
+            for hostname in hostnames:
+                if not valid_hostname(hostname) or hostname in owners:
+                    raise Refused("invalid or colliding instance hostname")
+                owners[hostname] = instance
+        for hostname, owner in owners.items():
+            for application in applications:
+                for environment in ("prod", "staging"):
+                    instance = application + "-" + environment
+                    if instance != owner and is_instance_hostname(
+                        hostname, instance, self["domain"]
+                    ):
+                        raise Refused("alias cannot steal an instance namespace")
+            if self["domain"] and hostname.endswith("." + self["domain"]):
+                labels = hostname[: -(len(self["domain"]) + 1)].split(".")
+                namespace = labels[-1]
+                if re.search(r"-(?:staging|pr-[1-9][0-9]*)$", namespace):
+                    if (
+                        not is_instance_hostname(hostname, namespace, self["domain"])
+                        or namespace != owner
+                    ):
+                        raise Refused("alias cannot steal an instance namespace")
+        for hostname, guard in guards.items():
+            owned = hostname in owners or any(
+                is_instance_hostname(hostname, app + "-prod", self["domain"])
+                or is_instance_hostname(hostname, app + "-staging", self["domain"])
+                for app in applications
+            )
+            if (
+                not valid_hostname(hostname)
+                or not owned
+                or not isinstance(guard, dict)
+                or set(guard) != {"path", "step"}
+            ):
+                raise Refused("invalid onboarding guard")
+            if guard != {"path": "/api/onboarding", "step": "user"}:
+                raise Refused("invalid onboarding guard endpoint")
+
+    def owns_hostname(self, hostname, instance):
+        from .compose import is_instance_hostname
+
+        return is_instance_hostname(hostname, instance, self["domain"]) or hostname in self[
+            "instance_hostnames"
+        ].get(instance, [])
 
     def __getitem__(self, key):
         return self.data[key]
@@ -142,3 +209,15 @@ def identity(payload):
             raise Refused("pull request is only allowed for previews")
         suffix = environment
     return application, environment, suffix, f"{application}-{suffix}"
+
+
+def valid_hostname(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and all(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in value.split(".")
+        )
+        and "." in value
+    )

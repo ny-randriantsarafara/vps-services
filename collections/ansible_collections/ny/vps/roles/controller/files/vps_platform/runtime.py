@@ -11,11 +11,13 @@ import socket
 import stat
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .compose import INIT_PROFILE, LABEL_PREFIX, is_instance_hostname, memory_mib
+from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, stop_grace_seconds
 from .policy import Policy
 from .state import replace_json
 
@@ -26,6 +28,8 @@ LIST_FLAGS = {"container": "-aq", "network": "-q", "volume": "-q"}
 INSPECT_BATCH = 100
 MAX_OUTPUT_BYTES = 2097152
 MAX_LOG_BYTES = 262144
+ONBOARDING_TIMEOUT_SECONDS = 3
+ONBOARDING_COMPLETE_BODY = b"404: Not Found"
 INSTANCE = re.compile(r"[a-z][a-z0-9-]{1,63}-(?:prod|staging|pr-[1-9][0-9]*)\Z")
 COMMAND_ENVIRONMENT = {
     "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
@@ -50,15 +54,24 @@ def available_memory_mib(meminfo=MEMINFO):
     raise RuntimeFailure("available memory is unknown")
 
 
-def caddy_configuration(admin_socket, routes):
-    handlers = [
-        {
-            "match": [{"host": [route["hostname"]]}],
-            "handle": [{"handler": "reverse_proxy", "upstreams": [{"dial": route["upstream"]}]}],
-            "terminal": True,
-        }
-        for route in routes
-    ]
+def caddy_configuration(admin_socket, routes, guards=None):
+    guards = guards or {}
+    handlers = []
+    denied = {"handler": "static_response", "status_code": 403, "body": "private setup required"}
+    for route in routes:
+        hostname = route["hostname"]
+        if hostname in guards:
+            handlers.append(
+                {
+                    "match": [{"host": [hostname], "path": ["/api/onboarding/users*"]}],
+                    "handle": [denied],
+                    "terminal": True,
+                }
+            )
+        handler = {"handler": "reverse_proxy", "upstreams": [{"dial": route["upstream"]}]}
+        if hostname in guards and not guards[hostname]:
+            handler = denied
+        handlers.append({"match": [{"host": [hostname]}], "handle": [handler], "terminal": True})
     neutral = {"handle": [{"handler": "static_response", "status_code": 404}], "terminal": True}
     # Port 80 stays with Caddy's automatic HTTPS: ACME challenges and redirects only.
     return {
@@ -129,6 +142,10 @@ def require_admitted_limits(host, service):
         or host.get("Memory") != expected_memory
         or host.get("MemorySwap") != expected_memory
         or host.get("PidsLimit") != service["pids_limit"]
+        or (
+            "stop_grace_period" in service
+            and host.get("StopTimeout") != stop_grace_seconds(service["stop_grace_period"])
+        )
     ):
         raise RuntimeFailure("effective resource limits do not match admission")
 
@@ -374,7 +391,13 @@ class Runtime:
             if len(replicas) != 1:
                 raise RuntimeFailure("service replica count is not one")
             container = replicas[0]
-            require_admitted_limits(container["HostConfig"], service)
+            require_admitted_limits(
+                {
+                    **container["HostConfig"],
+                    "StopTimeout": container.get("Config", {}).get("StopTimeout"),
+                },
+                service,
+            )
             require_isolation(container["HostConfig"], instance)
             require_loopback_ports(container["HostConfig"], service)
             require_instance_mounts(container, instance)
@@ -402,25 +425,111 @@ class Runtime:
         self._docker(resource["kind"], "rm", resource["id"], timeout=60)
 
     def _own_routes(self, instance, routes):
-        domain = self.policy["domain"]
-        return [
-            route for route in routes if is_instance_hostname(route["hostname"], instance, domain)
-        ]
+        return [route for route in routes if self.policy.owns_hostname(route["hostname"], instance)]
 
     def _public_status(self, own_routes):
         if not own_routes:
             return "unconfigured"
+        if any(
+            route["hostname"] in self.policy["onboarding_guards"] and not self._guard_open(route)
+            for route in own_routes
+        ):
+            return "protected"
         if all(self.public_probe(route) for route in own_routes):
             return "ready"
         return "unreachable"
 
+    def _guard_open(self, route):
+        guard = self.policy["onboarding_guards"].get(route["hostname"])
+        if guard is None:
+            return True
+        if not re.fullmatch(r"127\.0\.0\.1:[0-9]{1,5}", route["upstream"]):
+            return False
+        port = int(route["upstream"].split(":")[1])
+        if not 1 <= port <= 65535:
+            return False
+        deadline = time.monotonic() + ONBOARDING_TIMEOUT_SECONDS
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", port, timeout=ONBOARDING_TIMEOUT_SECONDS
+        )
+        watchdog = None
+        expired = threading.Event()
+        try:
+            connection.connect()
+            probe_socket = connection.sock
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+
+            def interrupt_probe():
+                # A socket inactivity timeout cannot bound dripped headers/chunk framing.
+                expired.set()
+                try:
+                    probe_socket.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                finally:
+                    probe_socket.close()
+
+            watchdog = threading.Timer(remaining, interrupt_probe)
+            watchdog.start()
+            connection.request("GET", guard["path"], headers={"Host": route["hostname"]})
+            result = connection.getresponse()
+            body = bytearray()
+            while len(body) <= 65536:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                probe_socket.settimeout(remaining)
+                chunk = result.read1(min(4096, 65537 - len(body)))
+                if not chunk:
+                    break
+                body.extend(chunk)
+            if expired.is_set() or time.monotonic() >= deadline or len(body) > 65536:
+                return False
+            # Home Assistant unregisters its onboarding API once every step is done;
+            # its HTTP server only listens after that decision, so this exact
+            # aiohttp response proves a completed onboarding.
+            if result.status == 404:
+                return bytes(body) == ONBOARDING_COMPLETE_BODY
+            if result.status != 200:
+                return False
+            steps = json.loads(body)
+            if not isinstance(steps, list) or not all(isinstance(item, dict) for item in steps):
+                return False
+            owners = [item for item in steps if item.get("step") == guard["step"]]
+            return (
+                len(owners) == 1
+                and owners[0].get("done") is True
+                and not expired.is_set()
+                and time.monotonic() < deadline
+            )
+        except (OSError, ValueError, RecursionError, http.client.HTTPException):
+            return False
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+                watchdog.join()
+            connection.close()
+
+    def refresh_ingress(self, routes):
+        self._publish(routes)
+        return {route["hostname"]: self._public_status([route]) for route in routes}
+
     def _publish(self, routes):
         if not self.policy["domain"] and not routes:
             return
-        config = caddy_configuration(self.policy["caddy_admin_socket"], routes)
+        guards = {
+            route["hostname"]: self._guard_open(route)
+            for route in routes
+            if route["hostname"] in self.policy["onboarding_guards"]
+        }
+        config = caddy_configuration(self.policy["caddy_admin_socket"], routes, guards)
         path = Path(self.policy["caddy_config"])
         if path.parent.is_symlink() or not path.parent.is_dir():
             raise RuntimeFailure("Caddy configuration directory is missing")
+        if read_previous_configuration(path) == config:
+            return False
         fd, temporary = tempfile.mkstemp(prefix=".caddy-", suffix=".json", dir=path.parent)
         os.close(fd)
         candidate = Path(temporary)

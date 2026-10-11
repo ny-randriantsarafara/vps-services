@@ -195,3 +195,21 @@ Un objet Docker marqué `vps.platform.*` sans entrée de registre, ou un registr
 3. Supprimer uniquement ces objets, ou corriger l'entrée du registre, puis relancer `vpsctl status`.
 
 Jamais de `docker system prune --volumes` ni de suppression globale : les données de production et de staging seraient perdues.
+
+### Rafraîchir une garde d’onboarding
+
+Configurer `controller_instance_hostnames` et `controller_onboarding_guards` dans les variables du rôle contrôleur, uniquement depuis l’inventaire administrateur. Exemple pour une instance :
+
+```yaml
+controller_instance_hostnames:
+  home-assistant-prod:
+    - home-assistant.nyhasinavalona.com
+controller_onboarding_guards:
+  home-assistant.nyhasinavalona.com:
+    path: /api/onboarding
+    step: user
+```
+
+Après création privée du propriétaire par tunnel SSH, exécuter `sudo vpsctl ingress refresh`. Cette commande administrateur prend le verrou du registre, vérifie la propriété des objets existants et republie les routes prêtes. Elle ne change pas les générations et ne démarre ni arrête les applications. Une configuration Caddy identique ne provoque aucun reload. La maintenance exécute également ce refresh toutes les cinq minutes ; le nettoyage des previews garde ses règles existantes.
+
+Une garde fermée est exposée comme `http_status: protected`, indépendamment de la santé locale. Après un onboarding complet, Home Assistant ne sert plus `/api/onboarding` : son 404 exact `404: Not Found` ouvre la garde, tout autre 404 la laisse fermée. Les sondes d’onboarding visent seulement le port loopback enregistré, sans redirection, avec un délai de trois secondes et une limite de 64 Kio. Le chemin public `/api/onboarding/users*` reste toujours interdit ; continuer les créations de propriétaire via le tunnel privé après une remise à zéro.

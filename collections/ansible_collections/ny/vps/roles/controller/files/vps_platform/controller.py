@@ -177,6 +177,32 @@ class Controller:
         except Exception:
             return response(None, "failed", "status failed; operator inspection required")
 
+    def refresh_ingress(self, actor):
+        try:
+            self.policy.authorize(actor, admin=True)
+            with self.registry.locked():
+                state = self.registry.load()
+                self._inventory(state, admission=True)
+                statuses = self.runtime.refresh_ingress(self._routes(state))
+                for record in state["instances"].values():
+                    if record["status"] == "ready" and record.get("routes"):
+                        values = [statuses[route["hostname"]] for route in record["routes"]]
+                        record["http_status"] = (
+                            "protected"
+                            if "protected" in values
+                            else (
+                                "ready"
+                                if all(value == "ready" for value in values)
+                                else "unreachable"
+                            )
+                        )
+                self.registry.save(state)
+            return response(None, "ready", "ingress refreshed")
+        except Refused as error:
+            return response(None, "refused", str(error))
+        except Exception:
+            return response(None, "failed", "ingress refresh failed; operator inspection required")
+
     def cleanup(self, actor):
         try:
             self.policy.authorize(actor, admin=True)

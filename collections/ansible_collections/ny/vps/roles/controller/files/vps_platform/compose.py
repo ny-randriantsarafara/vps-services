@@ -10,6 +10,7 @@ ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 DURATION = re.compile(r"[1-9][0-9]*(?:ms|s|m)\Z")
 SERVICE_FIELDS = {
     "image",
+    "stop_grace_period",
     "cpus",
     "mem_limit",
     "memswap_limit",
@@ -143,6 +144,8 @@ def compose_sections(compose):
 def validate_service(name, service, services, volumes):
     if not is_name(name) or not isinstance(service, dict) or set(service) - SERVICE_FIELDS:
         raise Refused("unsupported Compose service field")
+    if "stop_grace_period" in service:
+        stop_grace_seconds(service["stop_grace_period"])
     validate_limits(service)
     validate_environment(service)
     if type(service.get("x-vps-init", False)) is not bool:
@@ -358,6 +361,13 @@ def allocate_routes(routes, policy, instance, existing, services):
     allocated = []
     for route in routes:
         require_instance_route(route, policy, instance, services, allocated)
+        if any(
+            item.get("hostname") == route["hostname"]
+            for key, record in existing.items()
+            if key != instance
+            for item in record.get("routes", [])
+        ):
+            raise Refused("route hostname is already owned by another instance")
         taken = occupied | {upstream_port(item) for item in allocated}
         port = reused_port(previous, route) or free_port(policy, taken)
         allocated.append({**route, "upstream": "127.0.0.1:" + port})
@@ -368,7 +378,7 @@ def require_instance_route(route, policy, instance, services, allocated):
     if (
         not isinstance(route, dict)
         or set(route) != ROUTE_FIELDS
-        or not is_instance_hostname(route["hostname"], instance, policy["domain"])
+        or not policy.owns_hostname(route["hostname"], instance)
         or any(item["hostname"] == route["hostname"] for item in allocated)
     ):
         raise Refused("route hostname must belong to this instance namespace")
@@ -394,3 +404,12 @@ def free_port(policy, taken):
         if str(number) not in taken:
             return str(number)
     raise Refused("no loopback ports are available")
+
+
+def stop_grace_seconds(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]*[sm]", value):
+        raise Refused("invalid stop grace period")
+    seconds = int(value[:-1]) * (60 if value[-1] == "m" else 1)
+    if seconds > 300:
+        raise Refused("stop grace period exceeds limit")
+    return seconds

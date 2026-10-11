@@ -10,3 +10,6 @@ controller_budgets:
   staging: {cpus: 0.5, memory_mib: 1024}
   preview: {cpus: 1, memory_mib: 2048}
 controller_preview_instance_budget: {cpus: 0.5, memory_mib: 1024}
+# Administrator-owned exact hostname grants and private onboarding policies.
+controller_instance_hostnames: {}
+controller_onboarding_guards: {}

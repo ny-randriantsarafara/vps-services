@@ -5,5 +5,6 @@ After=docker.service caddy.service
 
 [Service]
 Type=oneshot
+ExecStart=/usr/local/sbin/vpsctl ingress refresh
 ExecStart=/usr/local/sbin/vpsctl status
 ExecStart=/usr/local/sbin/vpsctl cleanup
