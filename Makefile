@@ -1,43 +1,50 @@
-.PHONY: up up-all down restart logs ps tunnel sync-env help
+.PHONY: help setup check test integration collection plan bootstrap platform register-app
+.DEFAULT_GOAL := help
 
-# VPS connection — reads from .env if present, override with: make tunnel VPS_USER=ubuntu VPS_HOST=1.2.3.4
-VPS_USER ?= $(or $(shell grep -s '^VPS_USER=' .env 2>/dev/null | cut -d= -f2),root)
-VPS_HOST ?= $(shell grep -s '^VPS_HOST=' .env 2>/dev/null | cut -d= -f2)
+PYTHON ?= python3
+VENV := .venv
+INVENTORY := inventories/production/hosts.yml
+ANSIBLE := $(VENV)/bin/ansible
+ANSIBLE_PLAYBOOK := $(VENV)/bin/ansible-playbook
 
-up: ## Start core services (postgres + redis)
-	docker compose up -d
+# Les commandes qui touchent un serveur exigent TARGET, un nom d'hôte exact de l'inventaire.
+define require_target
+	@test -n "$(TARGET)" && $(ANSIBLE) -i $(INVENTORY) all --list-hosts | sed 1d | tr -d ' ' \
+		| grep -qxF -- '$(TARGET)' \
+		|| { echo "Cible explicite requise : make $@ TARGET=<hôte de $(INVENTORY)>" >&2; exit 2; }
+endef
 
-up-all: ## Start all services including Supabase stack
-	docker compose --profile supabase up -d
+help: ## Afficher les commandes
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-down: ## Stop all services
-	docker compose --profile supabase down
+setup: ## Créer .venv et installer les outils épinglés, hashes vérifiés
+	$(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install --require-hashes -r requirements-dev.lock
 
-restart: down up-all ## Restart everything
+check: ## Lint, tests, syntaxe Ansible, build de la collection et git diff --check
+	scripts/check.sh
 
-logs: ## Follow logs for all running services
-	docker compose --profile supabase logs -f
+test: ## Tests du contrôleur, du module Ansible et des rendus
+	$(VENV)/bin/python -m unittest discover -s tests -v
 
-ps: ## Show service status
-	docker compose --profile supabase ps
+integration: ## Test opt-in sur le Docker local (ressources vpsitest-* uniquement)
+	cd tests/integration && VPS_INTEGRATION=1 ../../$(VENV)/bin/python -m unittest -v test_local_docker
 
-tunnel: ## Open SSH tunnel for local database access (Ctrl+C to stop)
-	@if [ -z "$(VPS_HOST)" ] || [ "$(VPS_HOST)" = "your-vps-ip-or-hostname" ]; then \
-		echo "Error: VPS_HOST not configured. Set it in .env or run: make tunnel VPS_HOST=x.x.x.x"; \
-		exit 1; \
-	fi
-	@echo "Opening SSH tunnel to $(VPS_USER)@$(VPS_HOST)..."
-	@echo "  Postgres:  localhost:5432"
-	@echo "  PgBouncer: localhost:6543"
-	@echo "  Redis:     localhost:6379"
-	@echo "Press Ctrl+C to stop."
-	@ssh -L 5432:localhost:5432 \
-	     -L 6543:localhost:6543 \
-	     -L 6379:localhost:6379 \
-	     $(VPS_USER)@$(VPS_HOST) -N
+collection: ## Construire la collection ny.vps dans dist/
+	$(VENV)/bin/ansible-galaxy collection build collections/ansible_collections/ny/vps --output-path dist --force
 
-sync-env: ## Pull GitHub repo variables to local .env
-	@scripts/sync-env-from-gh.sh
+plan: ## Simuler platform.yml sur TARGET (--check --diff), sans mutation
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/platform.yml --limit '$(TARGET)' --check --diff
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+bootstrap: ## Créer l'administrateur et durcir SSH sur TARGET (docs/OPERATIONS.md)
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/bootstrap.yml --limit '$(TARGET)'
+
+platform: ## Appliquer le socle sur TARGET, sans démarrer d'application
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/platform.yml --limit '$(TARGET)'
+
+register-app: ## Enregistrer les comptes de déploiement de vps_deploy_accounts sur TARGET
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/register-app.yml --limit '$(TARGET)'
