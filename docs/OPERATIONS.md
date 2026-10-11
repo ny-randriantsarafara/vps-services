@@ -166,6 +166,7 @@ Baisser `vps_preview_limit` sous le nombre de previews présentes bloque les cr�
 ## 10. Caddy
 
 - Les applications sont servies sur `:443` uniquement. Le port 80 reste à l'HTTPS automatique de Caddy : défis ACME et redirection 308 vers HTTPS.
+- Domaine des instances : `apps.nyhasinavalona.com`. Le DNS Cloudflare porte `*.apps` en A et AAAA vers le VPS, **sans proxy** : Caddy obtient lui-même un certificat par nom au premier chargement de la route. Le wildcard couvre aussi les noms secondaires (`cms.<instance>.apps…`).
 - Un nom inconnu reçoit un 404 neutre.
 - Administration par `/run/caddy/admin.sock`, inaccessible aux conteneurs et aux comptes de déploiement.
 - `vpsctl` écrit la configuration complète dans `/etc/caddy/vps-platform.json` puis la charge ; un redémarrage de Caddy reprend donc les routes actives.
