@@ -1,0 +1,11 @@
+---
+profile: production
+offline: true
+exclude_paths:
+  - .cache/
+  - .venv/
+  - .superpowers/
+  - dist/
+skip_list:
+  # The collection is installed from Git at a pinned SHA, never published to Galaxy.
+  - galaxy[no-license]

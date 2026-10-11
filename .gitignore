@@ -1,14 +1,21 @@
-# Secrets
+# Secrets et configuration privée
 .env
+.env.*
+secrets/
+*.vault-password
 
-# Postgres data (managed by Docker named volume, but gitignore the bind-mount path if used)
-volumes/db/data/
-
-# Storage uploads
-volumes/storage/
-
-# Snippets (runtime-generated)
-volumes/snippets/
+# Dépendances, builds et résultats locaux
+.venv/
+.cache/
+.ansible/
+.collections/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # OS
 .DS_Store
