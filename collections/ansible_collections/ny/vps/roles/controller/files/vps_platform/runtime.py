@@ -29,6 +29,7 @@ INSPECT_BATCH = 100
 MAX_OUTPUT_BYTES = 2097152
 MAX_LOG_BYTES = 262144
 ONBOARDING_TIMEOUT_SECONDS = 3
+ONBOARDING_COMPLETE_BODY = b"404: Not Found"
 INSTANCE = re.compile(r"[a-z][a-z0-9-]{1,63}-(?:prod|staging|pr-[1-9][0-9]*)\Z")
 COMMAND_ENVIRONMENT = {
     "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
@@ -484,12 +485,14 @@ class Runtime:
                 if not chunk:
                     break
                 body.extend(chunk)
-            if (
-                expired.is_set()
-                or time.monotonic() >= deadline
-                or result.status != 200
-                or len(body) > 65536
-            ):
+            if expired.is_set() or time.monotonic() >= deadline or len(body) > 65536:
+                return False
+            # Home Assistant unregisters its onboarding API once every step is done;
+            # its HTTP server only listens after that decision, so this exact
+            # aiohttp response proves a completed onboarding.
+            if result.status == 404:
+                return bytes(body) == ONBOARDING_COMPLETE_BODY
+            if result.status != 200:
                 return False
             steps = json.loads(body)
             if not isinstance(steps, list) or not all(isinstance(item, dict) for item in steps):

@@ -112,6 +112,27 @@ class GuardTests(unittest.TestCase):
             self.assertFalse(runtime._guard_open(route))
         self.assertEqual(runtime._public_status([route]), "protected")
 
+    def test_completed_onboarding_opens_guard(self):
+        from unittest.mock import MagicMock, patch
+
+        route = {"hostname": "home-assistant.example.com", "upstream": "127.0.0.1:20000"}
+        runtime = Runtime(Policy(self.settings()))
+        # Home Assistant stops serving the onboarding API once every step is done.
+        for status, body, expected in [
+            (404, b"404: Not Found", True),
+            (404, b"404: Not Found\n", False),
+            (404, b"", False),
+            (404, b'[{"step":"user","done":true}]', False),
+            (500, b"404: Not Found", False),
+            (401, b"404: Not Found", False),
+        ]:
+            connection = MagicMock()
+            result = connection.getresponse.return_value
+            result.status = status
+            result.read1.side_effect = [body, b""]
+            with patch("vps_platform.runtime.http.client.HTTPConnection", return_value=connection):
+                self.assertEqual(runtime._guard_open(route), expected, (status, body))
+
     def test_app_cannot_submit_guard(self):
         from helpers import BoundaryRuntime
         from vps_platform.controller import Controller

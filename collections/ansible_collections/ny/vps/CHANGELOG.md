@@ -1,5 +1,9 @@
 # Changelog de `ny.vps`
 
+## 1.3.1
+
+- La garde d’onboarding s’ouvre aussi quand Home Assistant a terminé toutes les étapes : il ne sert alors plus `/api/onboarding` et répond le 404 exact `404: Not Found`. Tout autre 404 reste fermé.
+
 ## 1.3.0
 
 - Noms supplémentaires par instance autorisés uniquement par la politique administrateur ; garde privée d’onboarding fermée en cas d’erreur et blocage permanent de la création publique d’administrateur.
