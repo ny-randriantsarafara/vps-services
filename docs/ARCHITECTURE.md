@@ -1,144 +1,94 @@
-# VPS Services — Architecture
+# Architecture
 
-## Overview
+Un seul VPS, sans orchestrateur. Ansible configure l'hôte depuis le poste de l'opérateur ; chaque application se déploie depuis son propre dépôt en appelant une commande locale du serveur, `vpsctl`, qui décide de l'admission et applique Compose et les routes Caddy.
 
-Self-hosted Supabase stack on a VPS, managed via a single `docker-compose.yml` with Docker profiles. All services run in Docker containers on a shared bridge network (`vps-net`). Public access is provided by a Caddy reverse proxy container with automatic TLS. Database access is tunneled via SSH.
-
----
-
-## Services
-
-### Core (always running)
-
-| Service  | Image                          | Port             | Access                     |
-| -------- | ------------------------------ | ---------------- | -------------------------- |
-| Postgres | `supabase/postgres:15.8.1.085` | internal only    | Docker network / Supavisor |
-| Redis    | `redis:7-alpine`               | `127.0.0.1:6379` | SSH tunnel only            |
-
-### Supabase stack (`--profile supabase`)
-
-| Service              | Image                            | Port                               | Access                |
-| -------------------- | -------------------------------- | ---------------------------------- | --------------------- |
-| Caddy                | `caddy:2-alpine`                 | `80`, `443`                        | Public (internet)     |
-| Kong (API gateway)   | `kong:2.8.1`                     | internal only                      | Via Caddy             |
-| Studio (dashboard)   | `supabase/studio:2026.02.16`     | internal only                      | Via Kong (basic auth) |
-| Auth (GoTrue)        | `supabase/gotrue:v2.186.0`       | internal only                      | Via Kong              |
-| REST (PostgREST)     | `postgrest/postgrest:v14.5`      | internal only                      | Via Kong              |
-| Realtime             | `supabase/realtime:v2.76.5`      | internal only                      | Via Kong (WebSocket)  |
-| Storage              | `supabase/storage-api:v1.37.8`   | internal only                      | Via Kong              |
-| imgproxy             | `darthsim/imgproxy:v3.30.1`      | internal only                      | Via Storage           |
-| Edge Functions       | `supabase/edge-runtime:v1.70.3`  | internal only                      | Via Kong              |
-| Meta (pg-meta)       | `supabase/postgres-meta:v0.95.2` | internal only                      | Via Kong              |
-| Analytics (Logflare) | `supabase/logflare:1.31.2`       | internal only                      | Studio                |
-| Vector               | `timberio/vector:0.53.0-alpine`  | internal only                      | Log pipeline          |
-| Supavisor (pooler)   | `supabase/supavisor:2.7.4`       | `127.0.0.1:5432`, `127.0.0.1:6543` | SSH tunnel            |
-
----
-
-## Access model
-
-```
-internet
-    ├── supabase.nyhasinavalona.com (Caddy, HTTPS + auto Let's Encrypt)
-    │       └── Kong :8000 (Docker internal)
-                    ├── /rest/v1/*        → PostgREST (API key auth)
-                    ├── /auth/v1/*        → GoTrue (API key auth)
-                    ├── /storage/v1/*     → Storage (self-managed auth)
-                    ├── /realtime/v1/*    → Realtime WebSocket (API key auth)
-                    ├── /graphql/v1       → PostgREST GraphQL (API key auth)
-                    ├── /functions/v1/*   → Edge Functions
-                    ├── /pg/*             → postgres-meta (admin only)
-                    └── /*                → Studio (basic auth)
-    ├── pomodoro.nyhasinavalona.com
-    │       └── pomodoro:3000 (Docker internal)
-    ├── hoop.nyhasinavalona.com
-    │       ├── /api/*  -> hoop-api:3001 (Docker internal)
-    │       ├── /auth/* -> hoop-web:3000 (Docker internal)
-    │       └── /*     -> hoop-web:3000 (Docker internal)
-    ├── visa-insight.nyhasinavalona.com (Visa Insight admin; override via `VISA_INSIGHT_APP_DOMAIN`)
-    │       ├── /api/* -> visa-insight-api:3001 (Docker internal)
-    │       └── /*     -> visa-insight-web:3000 (Docker internal)
-    ├── visa-advisor.nyhasinavalona.com (Visa Insight advisor; override via `VISA_ADVISOR_APP_DOMAIN`)
-    │       └── /*     -> visa-insight-advisor:3000 (Docker internal)
-
-developer PC (SSH tunnel)
-    ├── localhost:5432  → Supavisor (session mode pooling)
-    ├── localhost:6543  → Supavisor (transaction mode pooling)
-    └── localhost:6379  → Redis
-
-other Docker apps (same vps-net)
-    └── postgres:5432   → direct Postgres connection
+```text
+poste opérateur / dépôt applicatif                     VPS Debian 13
+──────────────────────────────────                     ─────────────────────────────────────────────
+ansible-playbook (ny.vps.app)                          sudo -n /usr/local/sbin/vpsctl request
+  rend compose.yml.j2 localement      ── SSH ──▶        │  verrou flock, registre JSON
+  module deploy_instance (JSON stdin)                   │  admission : places, budgets, mémoire, disque
+                                                        ├─▶ docker compose (projet vps-<instance>)
+                                                        └─▶ Caddy (socket Unix) : route après readiness
 ```
 
----
+## Composants
 
-## Key design decisions
+| Composant | Rôle Ansible | Résultat sur l'hôte |
+| --- | --- | --- |
+| Hôte | `ny.vps.host` | Administrateur `vps-admin` par clés, mises à jour de sécurité, journal borné à 500 MiB |
+| SSH | `ny.vps.ssh` | Drop-in validé par `sshd -t` : pas de root, clés seulement, pas d'authentification interactive |
+| Firewall | `ny.vps.firewall` | `vps-firewall.service` : chaînes `VPS-INPUT` et `DOCKER-USER`, IPv4 et IPv6, ports 22/80/443 |
+| Docker | `ny.vps.docker` | Docker Engine 29.8.2, Compose 5.5.1, dépôt APT signé, rotation `json-file` 10 Mo × 3 |
+| Ingress | `ny.vps.ingress` | Caddy 2.11.7, administration par `/run/caddy/admin.sock`, configuration `/etc/caddy/vps-platform.json` |
+| Contrôleur | `ny.vps.controller` | `vpsctl`, politique `/etc/vps-platform/policy.json`, comptes de déploiement, timer de maintenance |
+| Application | `ny.vps.app` | Utilisé par les dépôts applicatifs ; ne s'exécute pas dans `platform.yml` |
 
-**Shared Postgres** — Supabase services and your own apps connect to the same Postgres instance. Supabase uses its own schemas (`auth`, `storage`, `_realtime`, `graphql_public`); your apps use `public`. The Supabase Postgres image includes all required roles and extensions.
+`platform.yml` ne démarre aucun conteneur applicatif. `register-app.yml` crée les comptes de déploiement et réécrit la politique, sans lancer de stack.
 
-**Supavisor connection pooler** — External Postgres access goes through Supavisor rather than connecting directly. Port 5432 provides session-mode pooling, port 6543 provides transaction-mode pooling. Other Docker services on `vps-net` connect directly to `postgres:5432`.
+## Le contrôleur `vpsctl`
 
-**Shared Redis** — Redis is a core service available for your apps via SSH tunnel. Supabase Realtime no longer requires Redis.
+Programme Python (bibliothèque standard) installé root-owned dans `/usr/local/lib/vps-platform/vps_platform`, lancé par `/usr/local/sbin/vpsctl`. Les chemins de politique et d'état sont fixes : ni la requête ni les arguments ne peuvent les changer.
 
-**DB-less Kong** — Kong runs in declarative mode (`KONG_DATABASE=off`), reading all routes and ACL rules from `volumes/kong/kong.yml` at startup. The entrypoint evaluates environment variables into the config template.
+- **Identité** : l'acteur vient de `SUDO_UID`/`SUDO_USER`, jamais de la requête. La politique associe chaque compte de déploiement à une application et à ses environnements ; un compte de production ne sert qu'à la production.
+- **Verrou** : toute requête prend `/var/lib/vps-platform/controller.lock` (`flock`) pour l'opération entière. L'attente est bornée à `lock_timeout_seconds` (600 s) ; au-delà, la requête est refusée.
+- **Registre** : `/var/lib/vps-platform/registry.json`, écrit atomiquement en `0600`. Il contient instances, générations, digests d'images, budgets réservés, ports loués, routes, échéances et tombstones. Aucune valeur secrète.
+- **Fichiers privés** : `/srv/vps/apps/<application>/<env>/compose.json` (Compose normalisé, secrets inclus) et `previous-compose.json`, en `0600` dans des répertoires `0700`.
+- **Audit** : `/var/lib/vps-platform/audit.jsonl`, une ligne par requête : date, acteur, opération, génération, digests, instance, statut, motif. Jamais de secret ni de Compose complet.
 
-**`log_min_messages=fatal`** — Postgres suppresses verbose log messages to prevent Realtime polling queries from flooding logs.
+## Admission
 
-**Caddy in Docker** — Caddy runs as a container on the same Docker network, binding host ports 80 and 443. It proxies all traffic to Kong, which handles internal routing and authentication. TLS certificates are automatically provisioned via Let's Encrypt and persisted in a named volume.
+Sous le verrou, dans cet ordre :
 
-**Vector + Logflare** — Container logs are collected by Vector (via Docker socket), parsed per service, and shipped to Logflare (analytics). Studio uses Logflare for the log viewer.
+1. Valider identité, protocole, champs, images par digest, environnement requis, volumes et routes (sous-ensemble décrit dans [APP-CONTRACT](APP-CONTRACT.md)).
+2. Réconcilier le registre avec les objets Docker marqués `vps.platform.*`. Un objet non suivi ou ambigu bloque les nouvelles admissions, sans suppression opportuniste.
+3. Compter les places : toute preview enregistrée, quel que soit son état, occupe une place. La mise à jour de la même PR n'en consomme pas une seconde. La troisième preview est refusée avec la liste des occupants et leur échéance.
+4. Additionner les budgets de l'environnement, en remplaçant l'ancienne réservation par le maximum de l'ancienne et de la nouvelle tant que les anciens conteneurs existent.
+5. Vérifier la mémoire : une hausse de réservation doit laisser au moins 512 MiB de `MemAvailable`.
+6. Vérifier le disque : espace libre ≥ 10 GiB de réserve + budgets de stockage déclarés + 2 GiB de croissance d'images, et au moins 5 % d'inodes libres. Après le pull, l'espace est mesuré de nouveau : il doit encore couvrir la réserve plus le budget de stockage de l'instance, sinon rien ne démarre. Une image plus grosse que prévu est ainsi refusée avant d'écrire des données.
+7. Réserver dans le registre, puis seulement créer les ressources.
 
----
+| Enveloppe | CPU | Mémoire |
+| --- | --- | --- |
+| Toutes les productions | 1,5 vCPU | 3 GiB |
+| Tous les stagings | 0,5 vCPU | 1 GiB |
+| Toutes les previews | 1 vCPU | 2 GiB |
+| Une preview | 0,5 vCPU | 1 GiB |
 
-## Volumes
+Ces plafonds sont des règles d'admission : ils ne réservent pas matériellement le CPU et ne garantissent pas les performances. Le disque est surveillé, pas soumis à des quotas : une base peut dépasser son budget déclaré.
 
-| Volume          | Used by           | Contents                |
-| --------------- | ----------------- | ----------------------- |
-| `postgres-data` | Postgres          | Database files          |
-| `redis-data`    | Redis             | AOF persistence         |
-| `storage-data`  | Storage, imgproxy | Uploaded files          |
-| `db-config`     | Postgres          | pgsodium decryption key |
-| `deno-cache`    | Edge Functions    | Deno module cache       |
-| `caddy_data`    | Caddy             | TLS certificates        |
-| `caddy_config`  | Caddy             | Caddy runtime config    |
+## Livraison
 
----
+`pull` → réserve disque → services démarrés dans l'ordre des dépendances (`up --no-deps --wait`), jobs d'initialisation en `run --rm` → contrôle des valeurs effectives par `docker inspect` (limites, `cap_drop: ALL`, `no-new-privileges`, réseau de l'instance, montages, ports loopback) → santé Docker → probe HTTP loopback → publication de la route Caddy → probe public. Les conteneurs de services retirés de la livraison sont supprimés.
 
-## File structure
+Une mise à jour remplace les conteneurs : une interruption est possible, aucun zéro downtime n'est promis. Un échec laisse l'instance en `failed` avec sa réservation, sans restauration automatique.
 
-```
-vps-services/
-  docker-compose.yml          — all services and profiles
-  .env                        — secrets (gitignored)
-  .env.example                — template committed to git
-  Makefile                    — convenience targets
-  caddy/
-    Caddyfile                 — Caddy reverse proxy config
-  scripts/
-    sync-env-from-gh.sh       — pull GitHub repo variables to local .env
-    sync-env-to-gh.sh         — push local .env to GitHub repo variables
-  volumes/
-    kong/
-      kong.yml                — Kong declarative routes + ACL
-    db/
-      _supabase.sql           — create _supabase database
-      logs.sql                — create _analytics schema
-      pooler.sql              — create _supavisor schema
-      realtime.sql            — create _realtime schema
-      webhooks.sql            — pg_net extension + hooks
-      roles.sql               — set Supabase role passwords
-      jwt.sql                 — set JWT app settings
-    logs/
-      vector.yml              — Vector log pipeline config
-    pooler/
-      pooler.exs              — Supavisor tenant config
-    functions/
-      main/index.ts           — Edge Functions entrypoint
-      hello/index.ts          — example function
-  .github/
-    workflows/
-      deploy.yml              — CI/CD: validate + deploy to VPS
-  docs/
-    ARCHITECTURE.md           — this file
-    CICD.md                   — CI/CD setup and troubleshooting
-```
+## Isolation
+
+| Ressource | Règle |
+| --- | --- |
+| Projet Compose | `vps-<instance>`, pas de `container_name` |
+| Réseau | Bridge `vps-<instance>`, jamais partagé |
+| Volumes | `vps-<instance>-<nom>`, déclarés par l'instance ; aucun bind mount |
+| Conteneurs | `cap_drop: ALL`, `no-new-privileges`, limites CPU/mémoire/swap/PID, pas de privilège ni namespace hôte |
+| Ports | `127.0.0.1:<port loué>` uniquement, plage 20000–29999 attribuée par le contrôleur |
+| HTTP | Une route par instance, nom dérivé de l'instance ; route inconnue : 404 neutre |
+
+Caddy écoute les applications sur `:443` seulement. Le port 80 reste à son HTTPS automatique : défis ACME et redirection vers HTTPS. Aucune application n'est servie en clair.
+
+Docker partage le noyau du VPS : ce modèle convient à des applications et contributeurs de confiance, pas à l'exécution de PR hostiles.
+
+## Cycle de vie
+
+| Statut | Signification | Place de preview |
+| --- | --- | --- |
+| `preparing` | Réservation écrite, livraison en cours (bail de 15 min) | Occupée |
+| `ready` | Livraison saine localement | Occupée |
+| `failed` | Livraison ou suppression incomplète, réservation conservée | Occupée |
+| `deleting` | Suppression en cours | Occupée |
+
+Le timer `vps-platform-maintenance.timer` lance `vpsctl status` puis `vpsctl cleanup` toutes les cinq minutes. Le nettoyage ne concerne que les previews expirées, abandonnées en `preparing`/`failed` après leur bail, ou restées en `deleting`. Production et staging ne sont jamais supprimés par ce cycle.
+
+## Hors périmètre
+
+Pas de Kubernetes, de Supabase commun, de daemon ou d'API HTTP de déploiement, de build sur le VPS, ni de restauration automatique des anciennes applications. Les sauvegardes applicatives appartiennent à chaque application.

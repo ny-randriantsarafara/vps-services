@@ -1,127 +1,70 @@
 # vps-services
 
-IaC for VPS — self-hosted Supabase stack with Caddy, Postgres, Redis, and full Supabase services.
+Socle Ansible d'un VPS unique (Debian 13) et contrat de déploiement des applications.
 
-## Services
+Ce dépôt configure le serveur : administrateur non-root, SSH par clés, firewall IPv4/IPv6, Docker, Caddy et une commande locale d'admission, `vpsctl`. Il ne déploie aucune application. Chaque dépôt applicatif possède son Compose et son playbook, et passe par la collection `ny.vps` pour demander une instance `prod`, `staging` ou `preview`.
 
-| Service | Profile | Access |
-|---------|---------|--------|
-| Postgres | always | Docker network / Supavisor |
-| Redis | always | SSH tunnel (`127.0.0.1:6379`) |
-| Caddy | supabase | Public (`80`, `443`) |
-| Kong (API gateway) | supabase | Docker internal |
-| Studio (dashboard) | supabase | Public via Caddy (basic auth) |
-| Supavisor (pooler) | supabase | SSH tunnel (`127.0.0.1:5432`, `127.0.0.1:6543`) |
-| Auth, REST, Realtime, Storage, Functions, Meta, Analytics, Vector, imgproxy | supabase | Docker internal |
+Le vocabulaire (application, instance, preview, place de preview, admission) est défini dans le [glossaire](GLOSSARY.md).
 
-## First-time setup
+## Règles du socle
 
-1. **Clone and configure**
-   ```bash
-   cp .env.example .env
-   # Edit .env — change ALL default values
-   ```
+- Deux previews au plus sur le VPS, toutes applications confondues ; la troisième est refusée, aucune n'est évincée.
+- Budgets agrégés : productions 1,5 vCPU / 3 GiB, stagings 0,5 vCPU / 1 GiB, previews 1 vCPU / 2 GiB, une preview au plus 0,5 vCPU / 1 GiB.
+- Une preview expire 72 heures après sa dernière livraison réussie ou son dernier renouvellement ; prod et staging n'expirent jamais.
+- Chaque instance a son réseau, ses volumes, ses secrets et ses données. Seul Caddy écoute sur 80/443 ; les applications publient sur `127.0.0.1` uniquement.
+- Les comptes de déploiement n'ont ni groupe `docker` ni sudo général : seulement `sudo -n /usr/local/sbin/vpsctl request`.
+- Les déploiements sont manuels. La CI de ce dépôt valide, elle ne déploie rien.
 
-2. **Generate secrets**
-   ```bash
-   # JWT secret
-   openssl rand -base64 32
+## Structure
 
-   # Other secrets (SECRET_KEY_BASE, VAULT_ENC_KEY, PG_META_CRYPTO_KEY, etc.)
-   openssl rand -base64 64
+```text
+inventories/production/   VPS, administrateur, comptes de déploiement (aucun secret)
+playbooks/                bootstrap.yml, platform.yml, register-app.yml
+collections/ansible_collections/ny/vps/
+  roles/                  host, ssh, firewall, docker, ingress, controller, app
+  roles/controller/files/vps_platform/   contrôleur vpsctl (Python, bibliothèque standard)
+  plugins/modules/        deploy_instance : requête du protocole version 1
+examples/application/     application fictive « exemple » et son déploiement
+tests/                    contrôleur, module, rendus Ansible ; tests/integration : Docker local
+docs/                     architecture, contrat applicatif, exploitation, CI, migration
+```
 
-   # Anon + Service Role keys
-   # Use: https://supabase.com/docs/guides/self-hosting/docker#generate-api-keys
-   # Paste your JWT_SECRET into the tool
-   ```
-
-3. **Configure DNS**
-
-   Point `supabase.nyhasinavalona.com` (A record) to your VPS IP. Ensure ports 80 and 443 are open in your firewall.
-
-4. **Start core services**
-   ```bash
-   make up
-   # or: docker compose up -d
-   ```
-
-5. **Start full Supabase stack**
-   ```bash
-   make up-all
-   # or: docker compose --profile supabase up -d
-   ```
-
-6. **Check status**
-   ```bash
-   make ps
-   ```
-
-## Public access (supabase.nyhasinavalona.com)
-
-Caddy runs as a Docker container and automatically provisions TLS certificates via Let's Encrypt. All traffic flows through Kong for routing and authentication.
-
-| URL | Routes to |
-|-----|-----------|
-| `https://supabase.nyhasinavalona.com/` | Studio dashboard (basic auth) |
-| `https://supabase.nyhasinavalona.com/rest/v1/` | PostgREST API |
-| `https://supabase.nyhasinavalona.com/auth/v1/` | GoTrue Auth |
-| `https://supabase.nyhasinavalona.com/storage/v1/` | Storage API |
-| `https://supabase.nyhasinavalona.com/realtime/v1/` | Realtime (WebSocket) |
-| `https://supabase.nyhasinavalona.com/graphql/v1` | GraphQL API |
-| `https://supabase.nyhasinavalona.com/functions/v1/` | Edge Functions |
-
-## Accessing from your PC (SSH tunnel)
-
-Run `make tunnel` on the VPS to see the exact command, then run it on your PC:
+## Commandes
 
 ```bash
-ssh -L 5432:localhost:5432 \
-    -L 6543:localhost:6543 \
-    -L 6379:localhost:6379 \
-    user@your-vps -N
+make setup                          # .venv et outils épinglés (hashes vérifiés)
+make check                          # Ruff, tests, ansible-lint, syntaxe, build de la collection
+make test                           # tests unitaires seuls
+make integration                    # opt-in : Docker local, ressources vpsitest-* uniquement
+make collection                     # construit ny.vps dans dist/
+
+make plan TARGET=vps-d9d9aca9       # platform.yml en --check --diff
+make bootstrap TARGET=vps-d9d9aca9  # administrateur puis durcissement SSH
+make platform TARGET=vps-d9d9aca9   # socle, sans application
+make register-app TARGET=vps-d9d9aca9
 ```
 
-Or add to `~/.ssh/config`:
+Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` égal à un nom d'hôte exact de l'inventaire.
 
-```
-Host vps
-  HostName your-vps-ip
-  User your-user
-  LocalForward 5432 localhost:5432
-  LocalForward 6543 localhost:6543
-  LocalForward 6379 localhost:6379
-```
+## Documentation
 
-Then just `ssh vps` keeps all tunnels open.
+| Document | Contenu |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Composants, admission, isolation, état local |
+| [Contrat applicatif](docs/APP-CONTRACT.md) | Requête version 1, sous-ensemble Compose, routes, statuts, rôle `ny.vps.app` |
+| [Exploitation](docs/OPERATIONS.md) | Empreintes SSH, bootstrap, récupération OVH, `vpsctl`, diagnostics |
+| [CI/CD](docs/CICD.md) | Validation de ce dépôt, règles pour les déploiements applicatifs |
+| [Migration](docs/MIGRATION.md) | Retrait de l'ancienne stack Supabase et de ses workflows |
+| [Conception](docs/superpowers/specs/2026-10-11-ansible-vps-design.md) | Spécification et décisions |
 
-**What stays tunnel-only:** Postgres (via Supavisor 5432/6543), Redis (6379).
+## État de validation
 
-## Connecting other apps to Postgres
+| Niveau | État |
+| --- | --- |
+| Contrôleur, module et rendus (`make check`) | Exécuté localement |
+| Configurations générées (sshd, dockerd, iptables-nft, Caddy) | Validées avec les outils épinglés en conteneurs |
+| Docker local (`make integration`) | Exécuté : deux previews, troisième refusée, données distinctes, limites effectives, mise à jour, nettoyage ciblé |
+| VM Debian 13 complète (systemd, reboot, idempotence) | Non exécuté |
+| VPS réel | Non provisionné : l'accès initial `debian` reste bloqué par le changement de mot de passe OVH |
 
-From inside the VPS (same Docker network):
-```
-host: postgres
-port: 5432
-```
-
-From your PC (via SSH tunnel through Supavisor):
-```
-host: localhost
-port: 5432  (session mode)
-port: 6543  (transaction mode)
-```
-
-## Useful commands
-
-```bash
-make up          # start core (postgres + redis)
-make up-all      # start everything including supabase
-make down        # stop all
-make logs        # follow logs
-make ps          # status
-make tunnel      # show ssh tunnel command
-```
-
-## Reusable deploy workflow
-
-`.github/workflows/deploy-compose.yml` supports private GHCR images. When callers provide `ghcr_username` plus the `ghcr_access_token` secret, the workflow logs the VPS Docker daemon into `ghcr.io` before `docker compose pull`. When those values are omitted, the workflow skips registry login and remains suitable for public images.
+Aucun domaine applicatif n'est approuvé : `vps_domain` est vide et le contrôleur refuse toute route HTTP tant qu'il le reste.

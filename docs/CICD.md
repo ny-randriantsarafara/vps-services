@@ -1,140 +1,45 @@
 # CI/CD
 
-Deploys automatically on every push to `main`. The workflow validates all configs first, then deploys to the VPS over SSH.
+## Ce dépôt : validation seulement
 
-Workflow file: `.github/workflows/deploy.yml`
+`.github/workflows/validate.yml` s'exécute sur push, pull request et déclenchement manuel. Il ne possède aucun secret VPS, ne se connecte à aucun serveur et ne provisionne rien.
 
----
+| Étape | Commande |
+| --- | --- |
+| Outils | `make setup` : `.venv` et `requirements-dev.lock`, installé avec `--require-hashes` |
+| Gates | `make check` |
 
-## One-time VPS setup
+`make check` lance `scripts/check.sh` :
 
-Run as root on the VPS once. Never again.
+1. `ruff check` et `ruff format --check` ;
+2. tous les tests unitaires (`python -m unittest discover -s tests`) ;
+3. `ansible-lint --offline` au profil production ;
+4. `ansible-playbook --syntax-check` de `bootstrap`, `platform`, `register-app` et du playbook d'exemple ;
+5. build de la collection `ny.vps` ;
+6. `git diff --check` sur tous les fichiers suivis.
 
-```bash
-# Create deploy user
-useradd -m -s /bin/bash deploy
-usermod -aG docker deploy
-
-# Create deploy directory
-mkdir -p /home/deploy/infra/caddy
-mkdir -p /home/deploy/infra/volumes
-chown -R deploy:deploy /home/deploy/infra
-
-# Generate SSH keypair for GitHub Actions
-sudo -u deploy ssh-keygen -t ed25519 -C "github-actions-deploy" \
-  -f /home/deploy/.ssh/github_actions -N ""
-cat /home/deploy/.ssh/github_actions.pub >> /home/deploy/.ssh/authorized_keys
-chmod 600 /home/deploy/.ssh/authorized_keys
-
-# Print private key — paste into GitHub secret VPS_SSH_KEY
-cat /home/deploy/.ssh/github_actions
-```
-
----
-
-## GitHub configuration
-
-### Secrets
-
-Set in: **Settings > Secrets and variables > Actions > Secrets**
-
-| Secret | Value |
-|--------|-------|
-| `VPS_HOST` | VPS IP or hostname |
-| `VPS_USER` | `deploy` |
-| `VPS_SSH_KEY` | Contents of `/home/deploy/.ssh/github_actions` (private key) |
-| `VPS_HOST_KEY` | Output of `ssh-keyscan -H <vps-host>` from a trusted network |
-
-`VPS_HOST_KEY` is obtained once from a trusted network to prevent MITM on deploys:
+Les Actions sont épinglées par SHA complet (`actions/checkout` v5.1.0, `actions/setup-python` v6.3.0), avec `contents: read` et sans conserver le jeton de checkout. Les versions Python des outils sont fixées dans `requirements-dev.txt`, avec leurs hashes dans `requirements-dev.lock` :
 
 ```bash
-ssh-keyscan -H your-vps-ip-or-hostname
-# Copy the full output as the secret value
+uv pip compile requirements-dev.txt --python-version 3.13 --generate-hashes --output-file requirements-dev.lock
 ```
 
-### Repository variables
+Le test Docker local (`make integration`) n'est pas exécuté en CI : il crée des conteneurs et ne se lance qu'à la demande.
 
-Set in: **Settings > Secrets and variables > Actions > Variables**
+Le socle se provisionne depuis le poste de l'opérateur (`make platform TARGET=...`), jamais sur un push.
 
-Every key from `.env.example` should exist as a repository variable. This includes `VISA_INSIGHT_APP_DOMAIN` for the Visa Insight admin host and `VISA_ADVISOR_APP_DOMAIN` for the public advisor host (must match DNS and the app-repo deployment settings). The deploy workflow assembles the `.env` file on the VPS from all repository variables at deploy time (using `toJSON(vars)`).
+## Dépôts applicatifs
 
-To sync variables between your local `.env` and GitHub:
+Les déploiements commencent **manuellement**, depuis le poste, avec le playbook de l'application (voir [APP-CONTRACT](APP-CONTRACT.md)). Une automatisation GitHub n'est pas encore approuvée ; lorsqu'elle le sera, elle devra respecter ces règles :
 
-```bash
-# Push local .env values to GitHub repository variables
-scripts/sync-env-to-gh.sh
+- Un compte SSH de déploiement par usage : nonprod (staging et previews) et production, distincts. Sans groupe `docker` ni sudo général ; seulement `vpsctl request`.
+- Clé privée et empreinte du serveur dans des secrets d'environnement GitHub restreints ; `known_hosts` vérifié, jamais `StrictHostKeyChecking=no`.
+- Aucun secret pour les PR issues de forks. Un workflow privilégié n'exécute pas le code d'une PR non revue.
+- Images construites en CI, publiées, puis transmises **par digest**. Aucun build sur le VPS.
+- `release_generation` croissante, par exemple `github.run_id` ou un compteur de livraison. Une `concurrency` GitHub par application et PR aide à ordonner les jobs ; elle ne remplace ni le verrou du VPS ni le contrôle de génération.
+- À la fermeture de la PR, `operation=destroy` avec une génération supérieure à la dernière livraison.
+- La collection `ny.vps` est installée à un SHA de release revu ; chaque dépôt relit ses mises à jour.
 
-# Pull GitHub repository variables to local .env
-make sync-env
-# or directly:
-scripts/sync-env-from-gh.sh
-```
+Proposition à valider : staging après validation sur la branche principale de l'application, production par action manuelle à partir d'un digest validé en staging, previews sur les événements de PR.
 
----
-
-## What deploys
-
-The workflow rsyncs these files to `/home/deploy/infra/` on the VPS:
-
-- `docker-compose.yml`
-- `caddy/Caddyfile`
-- `scripts/`
-- `volumes/kong/kong.yml`
-- `volumes/db/*.sql`
-- `volumes/logs/vector.yml`
-- `volumes/pooler/pooler.exs`
-- `volumes/functions/`
-- `Makefile`
-
-It excludes: `.env`, `.env.*`, `.git/`, `docs/`, `*.backup`
-
-The `.env` file is assembled separately from repository variables (never committed to git). The write uses an atomic `tmp + mv` to prevent partial reads.
-
----
-
-## Deploy pipeline
-
-1. **Validate** — `docker compose config`, `caddy fmt --diff`, `yamllint`
-2. **Backup** — copies current `docker-compose.yml`, `Caddyfile`, and `.env` to `.backup` files on the VPS
-3. **Rsync** — syncs config files to `/home/deploy/infra/`
-4. **Write .env** — assembles `.env` from repository variables via `jq`
-5. **Restart** — `docker compose --profile supabase up -d --remove-orphans --pull missing`
-6. **Health check** — polls all 14 services (postgres, redis, kong, auth, rest, realtime, storage, imgproxy, meta, functions, studio, analytics, supavisor, caddy) for up to 15 retries at 10s intervals
-
----
-
-## Troubleshooting
-
-**validate job fails**
-
-| Error | Fix |
-|-------|-----|
-| `docker compose config` fails | Check `.env.example` — a var without a default may fail dummy .env generation |
-| `caddy fmt` fails | Run `caddy fmt --diff caddy/Caddyfile` locally and fix the formatting |
-| `yamllint` fails | Fix YAML indentation in `volumes/kong/kong.yml` |
-
-**deploy job fails**
-
-| Error | Fix |
-|-------|-----|
-| SSH permission denied | Verify `VPS_SSH_KEY` matches `~/.ssh/authorized_keys` on VPS |
-| Docker stack unhealthy | SSH to VPS, run `docker compose --profile supabase logs` |
-| Health check timeout | Check individual service logs: `docker logs supabase-<service>` |
-
----
-
-## Visa Insight ingress
-
-Routing lives in `caddy/Caddyfile` with two Visa Insight host blocks. `VISA_INSIGHT_APP_DOMAIN` keeps the current path-split pattern: `/api/*` → `visa-insight-api:3001`, everything else → `visa-insight-web:3000`. `VISA_ADVISOR_APP_DOMAIN` routes all traffic to `visa-insight-advisor:3000`. Caddy reads both values from the VPS `.env` (set via GitHub **repository variables**). Deploy the Visa Insight compose stack on `vps-net` with service names `visa-insight-api`, `visa-insight-web`, and `visa-insight-advisor` before expecting public traffic.
-
-### Post-merge verification (production)
-
-Replace the hosts with your `VISA_INSIGHT_APP_DOMAIN` and `VISA_ADVISOR_APP_DOMAIN` values (DNS must point at this VPS):
-
-1. **Admin web** — `curl -fsS -o /dev/null -w '%{http_code}\n' "https://visa-insight.nyhasinavalona.com/"` (adjust host; expect `200` or your app's normal status).
-2. **API** — `curl -fsS "https://visa-insight.nyhasinavalona.com/api/health"` (expect API health payload when the API container is up).
-3. **Advisor web** — `curl -fsS -o /dev/null -w '%{http_code}\n' "https://visa-advisor.nyhasinavalona.com/"` (expect `200` or your app's normal status).
-4. **Advisor health** — `curl -fsS "https://visa-advisor.nyhasinavalona.com/health"` (expect advisor health payload when the advisor container is up).
-
-502 on either host usually means the upstream container is not on `vps-net` or the service names do not match the Caddyfile.
-
+Le socle ne contient aucun workflow qui reconstruit ou redéploie toutes les applications.
