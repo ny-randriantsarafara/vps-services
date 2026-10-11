@@ -9,7 +9,7 @@ Le vocabulaire (application, instance, preview, place de preview, admission) est
 ## Règles du socle
 
 - Deux previews au plus sur le VPS, toutes applications confondues ; la troisième est refusée, aucune n'est évincée.
-- Budgets agrégés : productions 1,5 vCPU / 3 GiB, stagings 0,5 vCPU / 1 GiB, previews 1 vCPU / 2 GiB, une preview au plus 0,5 vCPU / 1 GiB.
+- Budgets agrégés (inventaire, `vps_budgets`) : productions 1,5 vCPU / 3 GiB, stagings 1 vCPU / 1 GiB, previews 2 vCPU / 2 GiB, une preview au plus 1 vCPU / 1 GiB.
 - Une preview expire 72 heures après sa dernière livraison réussie ou son dernier renouvellement ; prod et staging n'expirent jamais.
 - Chaque instance a son réseau, ses volumes, ses secrets et ses données. Seul Caddy écoute sur 80/443 ; les applications publient sur `127.0.0.1` uniquement.
 - Les comptes de déploiement n'ont ni groupe `docker` ni sudo général : seulement `sudo -n /usr/local/sbin/vpsctl request`.

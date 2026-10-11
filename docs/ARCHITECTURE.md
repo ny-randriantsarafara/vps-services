@@ -51,9 +51,9 @@ Sous le verrou, dans cet ordre :
 | Enveloppe | CPU | Mémoire |
 | --- | --- | --- |
 | Toutes les productions | 1,5 vCPU | 3 GiB |
-| Tous les stagings | 0,5 vCPU | 1 GiB |
-| Toutes les previews | 1 vCPU | 2 GiB |
-| Une preview | 0,5 vCPU | 1 GiB |
+| Tous les stagings | 1 vCPU | 1 GiB |
+| Toutes les previews | 2 vCPU | 2 GiB |
+| Une preview | 1 vCPU | 1 GiB |
 
 Ces plafonds sont des règles d'admission : ils ne réservent pas matériellement le CPU et ne garantissent pas les performances. Le disque est surveillé, pas soumis à des quotas : une base peut dépasser son budget déclaré.
 
