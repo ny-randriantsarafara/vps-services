@@ -7,6 +7,11 @@
     controller_admin_user: vps-admin
     controller_domain: apps.example.test
     controller_preview_limit: "2"
+    controller_budgets:
+      prod: {cpus: 1.5, memory_mib: 3072}
+      staging: {cpus: 1, memory_mib: 1024}
+      preview: {cpus: 2, memory_mib: 2048}
+    controller_preview_instance_budget: {cpus: 1, memory_mib: 1024}
     controller_deploy_accounts:
       exemple-nonprod:
         application: exemple

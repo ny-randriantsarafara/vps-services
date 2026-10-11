@@ -27,3 +27,5 @@ controller_policy:
     - root
   domain: "{{ controller_domain }}"
   preview_limit: "{{ controller_preview_limit | int }}"
+  budgets: "{{ controller_budgets }}"
+  preview_instance_budget: "{{ controller_preview_instance_budget }}"

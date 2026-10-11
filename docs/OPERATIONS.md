@@ -143,7 +143,7 @@ L'audit contient date, acteur, opération, génération, digests, instance, stat
 
 ## 9. Politique
 
-`/etc/vps-platform/policy.json` est généré par Ansible depuis l'inventaire : `domain` (`vps_domain`), `preview_limit` (`vps_preview_limit`), `accounts` (`vps_deploy_accounts`) et `administrators`. Une modification manuelle est écrasée au prochain `platform` ou `register-app`.
+`/etc/vps-platform/policy.json` est généré par Ansible depuis l'inventaire : `domain` (`vps_domain`), `preview_limit` (`vps_preview_limit`), `accounts` (`vps_deploy_accounts`), `budgets` (`vps_budgets`), `preview_instance_budget` (`vps_preview_instance_budget`) et `administrators`. Une modification manuelle est écrasée au prochain `platform` ou `register-app`.
 
 Les autres clés gardent les valeurs par défaut du contrôleur (`vps_platform/policy.py`) :
 
@@ -152,8 +152,6 @@ Les autres clés gardent les valeurs par défaut du contrôleur (`vps_platform/p
 | `preview_ttl_seconds` | 259200 | Expiration d'une preview (72 h) |
 | `preparing_lease_seconds` | 900 | Bail d'une livraison en cours avant nettoyage |
 | `lock_timeout_seconds` | 600 | Attente maximale du verrou |
-| `budgets` | prod 1,5/3072, staging 0,5/1024, preview 1/2048 | vCPU / MiB par environnement |
-| `preview_instance_budget` | 0,5 / 1024 | Plafond d'une preview |
 | `minimum_free_memory_mib` | 512 | Marge de `MemAvailable` après une hausse de réservation |
 | `minimum_free_disk_gib` | 10 | Réserve disque ; en dessous, admissions gelées |
 | `disk_warning_gib` | 15 | Seuil d'avertissement de `status` |

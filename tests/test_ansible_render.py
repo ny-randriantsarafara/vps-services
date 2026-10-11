@@ -135,6 +135,8 @@ class ControllerPolicyRenderTests(unittest.TestCase):
         )
         self.assertEqual(data["administrators"], ["vps-admin", "root"])
         self.assertEqual(data["preview_limit"], 2)
+        self.assertEqual(data["budgets"]["staging"], {"cpus": 1, "memory_mib": 1024})
+        self.assertEqual(data["preview_instance_budget"], {"cpus": 1, "memory_mib": 1024})
 
 
 class IngressRenderTests(unittest.TestCase):
