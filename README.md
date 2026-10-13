@@ -68,4 +68,4 @@ Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` éga
 | VM Debian 13 complète (systemd, reboot, idempotence) | Non exécuté |
 | VPS réel | Provisionné : bootstrap, `platform` deux fois (second passage sans changement), reboot, seuls 22/80/443 ouverts en IPv4/IPv6, filtrage `DOCKER-USER` vérifié |
 
-Domaine des instances : `apps.nyhasinavalona.com` (wildcard DNS `*.apps`, sans proxy Cloudflare). Application enregistrée : `my-media` (comptes `my-media-nonprod` et `my-media-prod`).
+Domaine des instances : `apps.nyhasinavalona.com` (wildcard DNS `*.apps`, sans proxy Cloudflare). Applications enregistrées : `my-media` (comptes `my-media-nonprod` et `my-media-prod`), `home-assistant` (compte `home-assistant-prod`) et `portfolio` (comptes `portfolio-nonprod` et `portfolio-prod`).

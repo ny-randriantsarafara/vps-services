@@ -18,15 +18,17 @@ vps_admin_public_keys:
 vps_domain: apps.nyhasinavalona.com
 
 # Plafond global, toutes applications confondues.
-vps_preview_limit: 2
+vps_preview_limit: 1
 
 # Budgets d'admission (vCPU / MiB), toutes instances d'un environnement réunies, puis une preview.
 # Le CPU n'est pas réservé : 4 vCPU sur l'hôte. Directus démarre en plus de 120 s sous 0,2 vCPU
-# (mesuré le 11/10/2026), d'où 1 vCPU par preview et pour les stagings. La mémoire reste inchangée.
+# (mesuré le 11/10/2026), d'où 1 vCPU par preview et pour le staging de my-media.
+# Portfolio (13/10/2026) : prod 0,8 vCPU / 1 088 MiB, staging 0,85 vCPU / 1 024 MiB ; une seule
+# preview pour garder la mémoire déclarée dans les 8 GiB de l'hôte. Ce sont des plafonds.
 vps_budgets:
-  prod: {cpus: 2.25, memory_mib: 4096}
-  staging: {cpus: 1, memory_mib: 1024}
-  preview: {cpus: 2, memory_mib: 2048}
+  prod: {cpus: 3.1, memory_mib: 5120}
+  staging: {cpus: 2, memory_mib: 2048}
+  preview: {cpus: 1, memory_mib: 1024}
 vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
 
 # Comptes de déploiement des applications (playbooks/register-app.yml), par exemple :
@@ -50,10 +52,22 @@ vps_deploy_accounts:
     environments: [prod]
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKm6yXaK91C3lzoadHyUiKByKuXvAzQCkSreh9meqq53 deploy@home-assistant-prod"
+  portfolio-nonprod:
+    application: portfolio
+    environments: [staging]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA7nWjU1K7m1lrNekN8l9QzeW7cKYOKWwFTk0i7ayNlw github-actions@portfolio-nonprod"
+  portfolio-prod:
+    application: portfolio
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBfIcsmTeiOcXooYOPwLFY6WRiTyzEK91x4ddtSkcxNB github-actions@portfolio-prod"
 
 # Alias administrateur exact ; les applications ne peuvent pas réclamer un autre nom.
+# Le site public du portfolio reste sur GitHub Pages : seuls son API et son CMS sont sur le VPS.
 vps_instance_hostnames:
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
+  portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
 # Fermé tant que le propriétaire n'a pas créé son compte par tunnel SSH.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}
