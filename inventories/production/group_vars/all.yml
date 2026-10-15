@@ -51,7 +51,6 @@ vps_deploy_accounts:
     application: home-assistant
     environments: [prod]
     public_keys:
-      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKm6yXaK91C3lzoadHyUiKByKuXvAzQCkSreh9meqq53 deploy@home-assistant-prod"
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIFGAmmYZe4oK18XUbmoL+BNN8LmMufDohqD/y2vCI04 github-actions@home-assistant-prod"
   portfolio-nonprod:
     application: portfolio
