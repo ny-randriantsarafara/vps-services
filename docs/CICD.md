@@ -48,4 +48,6 @@ Model approved 11/10/2026 and applied by `my-media`:
 
 Application-side spec: `docs/superpowers/specs/2026-10-11-cicd-design.md` in the `my-media` repository.
 
+`home-assistant` has a single production instance and no staging. Its CI delivers it after green checks on every push to `main`, with the `github-actions@home-assistant-prod` key held in the `production` GitHub environment, limited to `main`.
+
 This platform contains no workflow that rebuilds or redeploys all applications.
