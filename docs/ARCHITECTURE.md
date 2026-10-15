@@ -1,94 +1,94 @@
 # Architecture
 
-Un seul VPS, sans orchestrateur. Ansible configure l'hôte depuis le poste de l'opérateur ; chaque application se déploie depuis son propre dépôt en appelant une commande locale du serveur, `vpsctl`, qui décide de l'admission et applique Compose et les routes Caddy.
+One VPS, no orchestrator. Ansible configures the host from the operator machine; each application deploys from its own repository by calling a local server command, `vpsctl`, which decides admission and applies Compose and Caddy routes.
 
 ```text
-poste opérateur / dépôt applicatif                     VPS Debian 13
+operator machine / application repo                     Debian 13 VPS
 ──────────────────────────────────                     ─────────────────────────────────────────────
 ansible-playbook (ny.vps.app)                          sudo -n /usr/local/sbin/vpsctl request
-  rend compose.yml.j2 localement      ── SSH ──▶        │  verrou flock, registre JSON
-  module deploy_instance (JSON stdin)                   │  admission : places, budgets, mémoire, disque
-                                                        ├─▶ docker compose (projet vps-<instance>)
-                                                        └─▶ Caddy (socket Unix) : route après readiness
+  renders compose.yml.j2 locally      ── SSH ──▶        │  flock lock, JSON registry
+  deploy_instance module (JSON stdin)                   │  admission: slots, budgets, memory, disk
+                                                        ├─▶ docker compose (project vps-<instance>)
+                                                        └─▶ Caddy (Unix socket): route after readiness
 ```
 
-## Composants
+## Components
 
-| Composant | Rôle Ansible | Résultat sur l'hôte |
+| Component | Ansible role | Result on the host |
 | --- | --- | --- |
-| Hôte | `ny.vps.host` | Administrateur `vps-admin` par clés, mises à jour de sécurité, journal borné à 500 MiB |
-| SSH | `ny.vps.ssh` | Drop-in validé par `sshd -t` : pas de root, clés seulement, pas d'authentification interactive |
-| Firewall | `ny.vps.firewall` | `vps-firewall.service` : chaînes `VPS-INPUT` et `DOCKER-USER`, IPv4 et IPv6, ports 22/80/443 |
-| Docker | `ny.vps.docker` | Docker Engine 29.8.2, Compose 5.5.1, dépôt APT signé, rotation `json-file` 10 Mo × 3 |
-| Ingress | `ny.vps.ingress` | Caddy 2.11.7, administration par `/run/caddy/admin.sock`, configuration `/etc/caddy/vps-platform.json` |
-| Contrôleur | `ny.vps.controller` | `vpsctl`, politique `/etc/vps-platform/policy.json`, comptes de déploiement, timer de maintenance |
-| Application | `ny.vps.app` | Utilisé par les dépôts applicatifs ; ne s'exécute pas dans `platform.yml` |
+| Host | `ny.vps.host` | Key-based administrator `vps-admin`, security updates, journal capped at 500 MiB |
+| SSH | `ny.vps.ssh` | Drop-in validated with `sshd -t`: no root, keys only, no interactive authentication |
+| Firewall | `ny.vps.firewall` | `vps-firewall.service`: `VPS-INPUT` and `DOCKER-USER` chains, IPv4 and IPv6, ports 22/80/443 |
+| Docker | `ny.vps.docker` | Docker Engine 29.8.2, Compose 5.5.1, signed APT repo, `json-file` rotation 10 MiB × 3 |
+| Ingress | `ny.vps.ingress` | Caddy 2.11.7, administration via `/run/caddy/admin.sock`, config `/etc/caddy/vps-platform.json` |
+| Controller | `ny.vps.controller` | `vpsctl`, policy `/etc/vps-platform/policy.json`, deploy accounts, maintenance timer |
+| Application | `ny.vps.app` | Used by application repos; not run in `platform.yml` |
 
-`platform.yml` ne démarre aucun conteneur applicatif. `register-app.yml` crée les comptes de déploiement et réécrit la politique, sans lancer de stack.
+`platform.yml` does not start any application container. `register-app.yml` creates deploy accounts and rewrites policy without launching a stack.
 
-## Le contrôleur `vpsctl`
+## The `vpsctl` controller
 
-Programme Python (bibliothèque standard) installé root-owned dans `/usr/local/lib/vps-platform/vps_platform`, lancé par `/usr/local/sbin/vpsctl`. Les chemins de politique et d'état sont fixes : ni la requête ni les arguments ne peuvent les changer.
+Python program (standard library) installed root-owned under `/usr/local/lib/vps-platform/vps_platform`, run via `/usr/local/sbin/vpsctl`. Policy and state paths are fixed: neither the request nor arguments can change them.
 
-- **Identité** : l'acteur vient de `SUDO_UID`/`SUDO_USER`, jamais de la requête. La politique associe chaque compte de déploiement à une application et à ses environnements ; un compte de production ne sert qu'à la production.
-- **Verrou** : toute requête prend `/var/lib/vps-platform/controller.lock` (`flock`) pour l'opération entière. L'attente est bornée à `lock_timeout_seconds` (600 s) ; au-delà, la requête est refusée.
-- **Registre** : `/var/lib/vps-platform/registry.json`, écrit atomiquement en `0600`. Il contient instances, générations, digests d'images, budgets réservés, ports loués, routes, échéances et tombstones. Aucune valeur secrète.
-- **Fichiers privés** : `/srv/vps/apps/<application>/<env>/compose.json` (Compose normalisé, secrets inclus) et `previous-compose.json`, en `0600` dans des répertoires `0700`.
-- **Audit** : `/var/lib/vps-platform/audit.jsonl`, une ligne par requête : date, acteur, opération, génération, digests, instance, statut, motif. Jamais de secret ni de Compose complet.
+- **Identity**: the actor comes from `SUDO_UID`/`SUDO_USER`, never from the request. Policy maps each deploy account to an application and its environments; a production account is for production only.
+- **Lock**: every request takes `/var/lib/vps-platform/controller.lock` (`flock`) for the whole operation. Wait is capped at `lock_timeout_seconds` (600 s); beyond that, the request is refused.
+- **Registry**: `/var/lib/vps-platform/registry.json`, written atomically as `0600`. It holds instances, generations, image digests, reserved budgets, leased ports, routes, expiry, and tombstones. No secret values.
+- **Private files**: `/srv/vps/apps/<application>/<env>/compose.json` (normalized Compose, secrets included) and `previous-compose.json`, mode `0600` in `0700` directories.
+- **Audit**: `/var/lib/vps-platform/audit.jsonl`, one line per request: time, actor, operation, generation, digests, instance, status, reason. Never secrets or full Compose.
 
 ## Admission
 
-Sous le verrou, dans cet ordre :
+Under the lock, in this order:
 
-1. Valider identité, protocole, champs, images par digest, environnement requis, volumes et routes (sous-ensemble décrit dans [APP-CONTRACT](APP-CONTRACT.md)).
-2. Réconcilier le registre avec les objets Docker marqués `vps.platform.*`. Un objet non suivi ou ambigu bloque les nouvelles admissions, sans suppression opportuniste.
-3. Compter les places : toute preview enregistrée, quel que soit son état, occupe une place. La mise à jour de la même PR n'en consomme pas une seconde. La troisième preview est refusée avec la liste des occupants et leur échéance.
-4. Additionner les budgets de l'environnement, en remplaçant l'ancienne réservation par le maximum de l'ancienne et de la nouvelle tant que les anciens conteneurs existent.
-5. Vérifier la mémoire : une hausse de réservation doit laisser au moins 512 MiB de `MemAvailable`.
-6. Vérifier le disque : espace libre ≥ 10 GiB de réserve + budgets de stockage déclarés + 2 GiB de croissance d'images, et au moins 5 % d'inodes libres. Après le pull, l'espace est mesuré de nouveau : il doit encore couvrir la réserve plus le budget de stockage de l'instance, sinon rien ne démarre. Une image plus grosse que prévu est ainsi refusée avant d'écrire des données.
-7. Réserver dans le registre, puis seulement créer les ressources.
+1. Validate identity, protocol, fields, images by digest, required environment, volumes, and routes (subset described in [APP-CONTRACT](APP-CONTRACT.md)).
+2. Reconcile the registry with Docker objects labeled `vps.platform.*`. An untracked or ambiguous object blocks new admissions, with no opportunistic deletion.
+3. Count slots: any registered preview, whatever its state, occupies a slot. Updating the same PR does not consume a second one. The third preview is refused with the list of occupants and their expiry.
+4. Sum environment budgets, replacing the old reservation with the max of old and new while old containers still exist.
+5. Check memory: a reservation increase must leave at least 512 MiB of `MemAvailable`.
+6. Check disk: free space ≥ 10 GiB reserve + declared storage budgets + 2 GiB image growth, and at least 5% free inodes. After pull, space is measured again: it must still cover reserve plus the instance storage budget, or nothing starts. An image larger than expected is refused before writing data.
+7. Reserve in the registry, then only create resources.
 
-| Enveloppe | CPU | Mémoire |
+| Envelope | CPU | Memory |
 | --- | --- | --- |
-| Toutes les productions | 1,5 vCPU | 3 GiB |
-| Tous les stagings | 1 vCPU | 1 GiB |
-| Toutes les previews | 2 vCPU | 2 GiB |
-| Une preview | 1 vCPU | 1 GiB |
+| All production | 1.5 vCPU | 3 GiB |
+| All staging | 1 vCPU | 1 GiB |
+| All previews | 2 vCPU | 2 GiB |
+| One preview | 1 vCPU | 1 GiB |
 
-Ces plafonds sont des règles d'admission : ils ne réservent pas matériellement le CPU et ne garantissent pas les performances. Le disque est surveillé, pas soumis à des quotas : une base peut dépasser son budget déclaré.
+These caps are admission rules: they do not physically reserve CPU and do not guarantee performance. Disk is monitored, not quota-enforced: a database can exceed its declared budget.
 
-## Livraison
+## Delivery
 
-`pull` → réserve disque → services démarrés dans l'ordre des dépendances (`up --no-deps --wait`), jobs d'initialisation en `run --rm` → contrôle des valeurs effectives par `docker inspect` (limites, `cap_drop: ALL`, `no-new-privileges`, réseau de l'instance, montages, ports loopback) → santé Docker → probe HTTP loopback de chaque route → publication des routes Caddy → probe public. Les conteneurs de services retirés de la livraison sont supprimés.
+`pull` → reserve disk → services started in dependency order (`up --no-deps --wait`), init jobs with `run --rm` → check effective values with `docker inspect` (limits, `cap_drop: ALL`, `no-new-privileges`, instance network, mounts, loopback ports) → Docker health → HTTP loopback probe for each route → publish Caddy routes → public probe. Containers removed from the delivery are deleted.
 
-Une mise à jour remplace les conteneurs : une interruption est possible, aucun zéro downtime n'est promis. Un échec laisse l'instance en `failed` avec sa réservation, sans restauration automatique.
+An update replaces containers: interruption is possible; zero downtime is not promised. A failure leaves the instance in `failed` with its reservation, with no automatic rollback.
 
 ## Isolation
 
-| Ressource | Règle |
+| Resource | Rule |
 | --- | --- |
-| Projet Compose | `vps-<instance>`, pas de `container_name` |
-| Réseau | Bridge `vps-<instance>`, jamais partagé |
-| Volumes | `vps-<instance>-<nom>`, déclarés par l'instance ; aucun bind mount |
-| Conteneurs | `cap_drop: ALL`, `no-new-privileges`, limites CPU/mémoire/swap/PID, pas de privilège ni namespace hôte |
-| Ports | `127.0.0.1:<port loué>` uniquement, plage 20000–29999 attribuée par le contrôleur |
-| HTTP | Nom principal dérivé de l'instance et noms d'un label au-dessous (`cms.<instance>…`) ; route inconnue : 404 neutre |
+| Compose project | `vps-<instance>`, no `container_name` |
+| Network | Bridge `vps-<instance>`, never shared |
+| Volumes | `vps-<instance>-<name>`, declared by the instance; no bind mounts |
+| Containers | `cap_drop: ALL`, `no-new-privileges`, CPU/memory/swap/PID limits, no privilege or host namespace |
+| Ports | `127.0.0.1:<leased port>` only, range 20000–29999 assigned by the controller |
+| HTTP | Primary name derived from the instance and names one label below (`cms.<instance>…`); unknown route: neutral 404 |
 
-Caddy écoute les applications sur `:443` seulement. Le port 80 reste à son HTTPS automatique : défis ACME et redirection vers HTTPS. Aucune application n'est servie en clair.
+Caddy serves applications on `:443` only. Port 80 stays for automatic HTTPS: ACME challenges and redirect to HTTPS. No application is served in cleartext.
 
-Docker partage le noyau du VPS : ce modèle convient à des applications et contributeurs de confiance, pas à l'exécution de PR hostiles.
+Docker shares the VPS kernel: this model suits trusted applications and contributors, not running hostile PR code.
 
-## Cycle de vie
+## Lifecycle
 
-| Statut | Signification | Place de preview |
+| Status | Meaning | Preview slot |
 | --- | --- | --- |
-| `preparing` | Réservation écrite, livraison en cours (bail de 15 min) | Occupée |
-| `ready` | Livraison saine localement | Occupée |
-| `failed` | Livraison ou suppression incomplète, réservation conservée | Occupée |
-| `deleting` | Suppression en cours | Occupée |
+| `preparing` | Reservation written, delivery in progress (15 min lease) | Occupied |
+| `ready` | Delivery healthy locally | Occupied |
+| `failed` | Incomplete delivery or deletion, reservation kept | Occupied |
+| `deleting` | Deletion in progress | Occupied |
 
-Le timer `vps-platform-maintenance.timer` lance `vpsctl status` puis `vpsctl cleanup` toutes les cinq minutes. Le nettoyage ne concerne que les previews expirées, abandonnées en `preparing`/`failed` après leur bail, ou restées en `deleting`. Production et staging ne sont jamais supprimés par ce cycle.
+The `vps-platform-maintenance.timer` runs `vpsctl status` then `vpsctl cleanup` every five minutes. Cleanup only affects expired previews, those abandoned in `preparing`/`failed` after their lease, or stuck in `deleting`. Production and staging are never removed by this cycle.
 
-## Hors périmètre
+## Out of scope
 
-Pas de Kubernetes, de Supabase commun, de daemon ou d'API HTTP de déploiement, de build sur le VPS, ni de restauration automatique des anciennes applications. Les sauvegardes applicatives appartiennent à chaque application.
+No Kubernetes, shared Supabase, deploy daemon or HTTP API, build on the VPS, or automatic restore of old applications. Application backups belong to each application.

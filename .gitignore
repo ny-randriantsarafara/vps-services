@@ -1,10 +1,10 @@
-# Secrets et configuration privée
+# Secrets and private configuration
 .env
 .env.*
 secrets/
 *.vault-password
 
-# Dépendances, builds et résultats locaux
+# Dependencies, builds, and local artifacts
 .venv/
 .cache/
 .ansible/

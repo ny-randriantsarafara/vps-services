@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - (app_environment == 'preview') == (app_pull_request is not none)
-    fail_msg: Une preview exige app_pull_request ; prod et staging n'en acceptent pas.
+    fail_msg: A preview requires app_pull_request; prod and staging do not accept it.
 
 - name: Require the delivery inputs of apply and plan
   ansible.builtin.assert:
@@ -11,7 +11,7 @@
       - app_generation is not none
       - app_compose_template is not none
       - app_storage_budget_gib is not none
-    fail_msg: apply et plan exigent app_generation, app_compose_template et app_storage_budget_gib.
+    fail_msg: apply and plan require app_generation, app_compose_template, and app_storage_budget_gib.
   when: app_operation in app_deployment_operations
 
 - name: Render the Compose services from the application template

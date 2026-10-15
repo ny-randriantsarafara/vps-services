@@ -1,71 +1,71 @@
 # vps-services
 
-Socle Ansible d'un VPS unique (Debian 13) et contrat de déploiement des applications.
+Ansible platform for a single VPS (Debian 13) and the application deployment contract.
 
-Ce dépôt configure le serveur : administrateur non-root, SSH par clés, firewall IPv4/IPv6, Docker, Caddy et une commande locale d'admission, `vpsctl`. Il ne déploie aucune application. Chaque dépôt applicatif possède son Compose et son playbook, et passe par la collection `ny.vps` pour demander une instance `prod`, `staging` ou `preview`.
+This repository configures the server: non-root administrator, key-based SSH, IPv4/IPv6 firewall, Docker, Caddy, and a local admission command, `vpsctl`. It does not deploy any application. Each application repository has its own Compose and playbook, and uses the `ny.vps` collection to request a `prod`, `staging`, or `preview` instance.
 
-Le vocabulaire (application, instance, preview, place de preview, admission) est défini dans le [glossaire](GLOSSARY.md).
+Vocabulary (application, instance, preview, preview slot, admission) is defined in the [glossary](GLOSSARY.md).
 
-## Règles du socle
+## Platform rules
 
-- Deux previews au plus sur le VPS, toutes applications confondues ; la troisième est refusée, aucune n'est évincée.
-- Budgets agrégés (inventaire, `vps_budgets`) : productions 1,5 vCPU / 3 GiB, stagings 1 vCPU / 1 GiB, previews 2 vCPU / 2 GiB, une preview au plus 1 vCPU / 1 GiB.
-- Une preview expire 72 heures après sa dernière livraison réussie ou son dernier renouvellement ; prod et staging n'expirent jamais.
-- Chaque instance a son réseau, ses volumes, ses secrets et ses données. Seul Caddy écoute sur 80/443 ; les applications publient sur `127.0.0.1` uniquement.
-- Les comptes de déploiement n'ont ni groupe `docker` ni sudo général : seulement `sudo -n /usr/local/sbin/vpsctl request`.
-- Les déploiements partent des dépôts applicatifs (poste ou CI de l'application, voir [CI/CD](docs/CICD.md)). La CI de ce dépôt valide, elle ne déploie rien.
+- At most two previews on the VPS, all applications combined; a third is refused and none is evicted.
+- Aggregate budgets (inventory, `vps_budgets`): production 1.5 vCPU / 3 GiB, staging 1 vCPU / 1 GiB, previews 2 vCPU / 2 GiB, at most one preview at 1 vCPU / 1 GiB.
+- A preview expires 72 hours after its last successful delivery or last renewal; prod and staging never expire.
+- Each instance has its own network, volumes, secrets, and data. Only Caddy listens on 80/443; applications publish on `127.0.0.1` only.
+- Deploy accounts have neither the `docker` group nor general sudo: only `sudo -n /usr/local/sbin/vpsctl request`.
+- Deployments start from application repositories (workstation or application CI; see [CI/CD](docs/CICD.md)). This repository’s CI validates; it does not deploy.
 
-## Structure
+## Layout
 
 ```text
-inventories/production/   VPS, administrateur, comptes de déploiement (aucun secret)
+inventories/production/   VPS, administrator, deploy accounts (no secrets)
 playbooks/                bootstrap.yml, platform.yml, register-app.yml
 collections/ansible_collections/ny/vps/
   roles/                  host, ssh, firewall, docker, ingress, controller, app
-  roles/controller/files/vps_platform/   contrôleur vpsctl (Python, bibliothèque standard)
-  plugins/modules/        deploy_instance : requête du protocole version 1
-examples/application/     application fictive « exemple » et son déploiement
-tests/                    contrôleur, module, rendus Ansible ; tests/integration : Docker local
-docs/                     architecture, contrat applicatif, exploitation, CI, migration
+  roles/controller/files/vps_platform/   vpsctl controller (Python, standard library)
+  plugins/modules/        deploy_instance: protocol version 1 request
+examples/application/     fictitious “exemple” application and its deployment
+tests/                    controller, module, Ansible renders; tests/integration: local Docker
+docs/                     architecture, application contract, operations, CI, migration
 ```
 
-## Commandes
+## Commands
 
 ```bash
-make setup                          # .venv et outils épinglés (hashes vérifiés)
-make check                          # Ruff, tests, ansible-lint, syntaxe, build de la collection
-make test                           # tests unitaires seuls
-make integration                    # opt-in : Docker local, ressources vpsitest-* uniquement
-make collection                     # construit ny.vps dans dist/
+make setup                          # .venv and pinned tools (hashes verified)
+make check                          # Ruff, tests, ansible-lint, syntax, collection build
+make test                           # unit tests only
+make integration                    # opt-in: local Docker, vpsitest-* resources only
+make collection                     # build ny.vps into dist/
 
-make plan TARGET=vps-d9d9aca9       # platform.yml en --check --diff
-make bootstrap TARGET=vps-d9d9aca9  # administrateur puis durcissement SSH
-make platform TARGET=vps-d9d9aca9   # socle, sans application
+make plan TARGET=vps-d9d9aca9       # platform.yml with --check --diff
+make bootstrap TARGET=vps-d9d9aca9  # administrator then SSH hardening
+make platform TARGET=vps-d9d9aca9   # platform, no application
 make register-app TARGET=vps-d9d9aca9
 ```
 
-Les commandes qui touchent un serveur refusent de s'exécuter sans `TARGET` égal à un nom d'hôte exact de l'inventaire.
+Commands that touch a server refuse to run unless `TARGET` equals an exact inventory host name.
 
 ## Documentation
 
-| Document | Contenu |
+| Document | Contents |
 | --- | --- |
-| [Architecture](docs/ARCHITECTURE.md) | Composants, admission, isolation, état local |
-| [Contrat applicatif](docs/APP-CONTRACT.md) | Requête version 1, sous-ensemble Compose, routes, statuts, rôle `ny.vps.app` |
-| [Exploitation](docs/OPERATIONS.md) | Empreintes SSH, bootstrap, récupération OVH, `vpsctl`, diagnostics |
-| [CI/CD](docs/CICD.md) | Validation de ce dépôt, règles pour les déploiements applicatifs |
-| [Migration](docs/MIGRATION.md) | Retrait de l'ancienne stack Supabase et de ses workflows |
-| [Conception](docs/superpowers/specs/2026-10-11-ansible-vps-design.md) | Spécification et décisions |
-| [Routes multiples](docs/superpowers/specs/2026-10-11-multi-route-design.md) | Noms secondaires d'une instance, domaine `apps`, comptes `my-media` |
+| [Architecture](docs/ARCHITECTURE.md) | Components, admission, isolation, local state |
+| [Application contract](docs/APP-CONTRACT.md) | Protocol version 1 request, Compose subset, routes, statuses, `ny.vps.app` role |
+| [Operations](docs/OPERATIONS.md) | SSH host keys, bootstrap, OVH recovery, `vpsctl`, diagnostics |
+| [CI/CD](docs/CICD.md) | Validation in this repo, rules for application deployments |
+| [Migration](docs/MIGRATION.md) | Removal of the old Supabase stack and its workflows |
+| [Design](docs/superpowers/specs/2026-10-11-ansible-vps-design.md) | Specification and decisions |
+| [Multiple routes](docs/superpowers/specs/2026-10-11-multi-route-design.md) | Secondary instance names, `apps` domain, `my-media` accounts |
 
-## État de validation
+## Validation status
 
-| Niveau | État |
+| Level | Status |
 | --- | --- |
-| Contrôleur, module et rendus (`make check`) | Exécuté localement |
-| Configurations générées (sshd, dockerd, iptables-nft, Caddy) | Validées avec les outils épinglés en conteneurs |
-| Docker local (`make integration`) | Exécuté : deux previews, troisième refusée, données distinctes, limites effectives, mise à jour, nettoyage ciblé |
-| VM Debian 13 complète (systemd, reboot, idempotence) | Non exécuté |
-| VPS réel | Provisionné : bootstrap, `platform` deux fois (second passage sans changement), reboot, seuls 22/80/443 ouverts en IPv4/IPv6, filtrage `DOCKER-USER` vérifié |
+| Controller, module, and renders (`make check`) | Run locally |
+| Generated configs (sshd, dockerd, iptables-nft, Caddy) | Validated with pinned tools in containers |
+| Local Docker (`make integration`) | Run: two previews, third refused, distinct data, effective limits, update, targeted cleanup |
+| Full Debian 13 VM (systemd, reboot, idempotence) | Not run |
+| Real VPS | Provisioned: bootstrap, `platform` twice (second pass unchanged), reboot, only 22/80/443 open on IPv4/IPv6, `DOCKER-USER` filtering verified |
 
-Domaine des instances : `apps.nyhasinavalona.com` (wildcard DNS `*.apps`, sans proxy Cloudflare). Applications enregistrées : `my-media` (comptes `my-media-nonprod` et `my-media-prod`), `home-assistant` (compte `home-assistant-prod`) et `portfolio` (comptes `portfolio-nonprod` et `portfolio-prod`).
+Instance domain: `apps.nyhasinavalona.com` (wildcard DNS `*.apps`, no Cloudflare proxy). Registered applications: `my-media` (`my-media-nonprod` and `my-media-prod` accounts), `home-assistant` (`home-assistant-prod` account), and `portfolio` (`portfolio-nonprod` and `portfolio-prod` accounts).

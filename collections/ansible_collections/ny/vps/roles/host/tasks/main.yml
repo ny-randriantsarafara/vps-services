@@ -4,7 +4,7 @@
     that:
       - ansible_facts['distribution'] == 'Debian'
       - ansible_facts['distribution_major_version'] == '13'
-    fail_msg: Le socle est validé uniquement sur Debian 13.
+    fail_msg: The platform is validated on Debian 13 only.
 
 - name: Configure the administrator
   ansible.builtin.import_tasks: admin.yml

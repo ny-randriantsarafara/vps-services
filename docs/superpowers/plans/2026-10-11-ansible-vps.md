@@ -1,30 +1,30 @@
-# Refonte Ansible VPS Services — plan d'implémentation
+# Ansible VPS Services rewrite — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remplacer la stack héritée par un socle Ansible utilisable et un contrat de déploiement applicatif isolé, avec admission globale vérifiable.
+**Goal:** Replace the legacy stack with a usable Ansible platform and an isolated application deployment contract, with verifiable global admission.
 
-**Architecture:** Une collection `ny.vps` configure le serveur et fournit un rôle applicatif. Une commande locale privilégiée limitée valide les demandes, sérialise les mutations, applique Compose et les routes Caddy et expire les previews. Chaque dépôt applicatif reste propriétaire de sa stack et de son playbook.
+**Architecture:** A `ny.vps` collection configures the server and provides an application role. A limited privileged local command validates requests, serializes mutations, applies Compose and Caddy routes, and expires previews. Each application repository keeps its stack and playbook.
 
-**Tech Stack:** Debian 13, Python 3 standard library pour le contrôleur, Ansible, Docker Engine/Compose, Caddy, iptables-nft/ip6tables-nft, unittest/pytest, ansible-lint et Ruff pour les checks locaux.
+**Tech Stack:** Debian 13, Python 3 standard library for the controller, Ansible, Docker Engine/Compose, Caddy, iptables-nft/ip6tables-nft, unittest/pytest, ansible-lint and Ruff for local checks.
 
 **Spec:** `docs/superpowers/specs/2026-10-11-ansible-vps-design.md`
 
 ## Global Constraints
 
-- Plafond global au VPS : deux previews actives, configurable sur l'hôte ; une instance par application/PR.
-- Instance durable `prod` ou `staging`, preview `pr-<nombre>` ; réseaux, volumes, secrets et données distincts.
-- Budgets applicatifs agrégés : production 1,5 vCPU / 3 GiB ; staging 0,5 vCPU / 1 GiB ; previews 1 vCPU / 2 GiB ; une preview au plus 0,5 vCPU / 1 GiB.
-- Expiration preview : 72 heures depuis apply réussi ou renouvellement explicite ; pas d'expiration prod/staging.
-- Déploiements manuels au début ; pas d'ancien déploiement sur push main.
-- Pas de reconstruction des anciennes apps, Supabase commun, Kubernetes, daemon ou API publique de déploiement.
-- Aucun commit, push, PR, mutation DNS, reset ou provisioning du vrai VPS.
-- Secrets hors Git et sorties publiques, comptes CI sans docker group ou sudo général, contrôle des host keys.
-- Ne pas écraser un travail concurrent du dossier original ; archive privée hors Git avant remplacement, `.git` conservé.
+- Global VPS cap: two active previews, configurable on the host; one instance per application/PR.
+- Durable instance `prod` or `staging`, preview `pr-<number>`; distinct networks, volumes, secrets, and data.
+- Aggregate application budgets: production 1.5 vCPU / 3 GiB; staging 0.5 vCPU / 1 GiB; previews 1 vCPU / 2 GiB; at most one preview at 0.5 vCPU / 1 GiB.
+- Preview expiration: 72 hours since successful apply or explicit renew; no prod/staging expiration.
+- Manual deployments at first; no old deploy on push to main.
+- No rebuild of old apps, shared Supabase, Kubernetes, daemon, or public deploy API.
+- No commit, push, PR, DNS mutation, reset, or provisioning of the real VPS.
+- Secrets outside Git and public output, CI accounts without docker group or general sudo, host key verification.
+- Do not overwrite concurrent work in the original directory; private archive outside Git before replacement, `.git` kept.
 
-## Contrat commun version 1
+## Shared contract version 1
 
-Le processus root-owned `vpsctl request` reçoit un JSON borné par stdin. Les chemins de politique et d'état sont fixés pour le CLI privilégié, sans surcharge par environnement/arguments CI. Une API Python injectable permet les tests locaux sans droits root. Installation : `/usr/local/lib/vps-platform/vps_platform`, launcher `/usr/local/sbin/vpsctl`, politique `/etc/vps-platform/policy.json`, état `/var/lib/vps-platform`, instances `/srv/vps/apps`.
+The root-owned process `vpsctl request` receives JSON bounded on stdin. Policy and state paths are fixed for the privileged CLI, with no override via environment/CI arguments. An injectable Python API allows local tests without root. Install: `/usr/local/lib/vps-platform/vps_platform`, launcher `/usr/local/sbin/vpsctl`, policy `/etc/vps-platform/policy.json`, state `/var/lib/vps-platform`, instances `/srv/vps/apps`.
 
 ```json
 {
@@ -40,11 +40,11 @@ Le processus root-owned `vpsctl request` reçoit un JSON borné par stdin. Les c
 }
 ```
 
-`compose` est une structure YAML/JSON rendue côté app ; les secrets autorisés sont déjà dans les environnements des seuls services concernés. Le contrôleur valide un sous-ensemble explicite : image par digest, une réplique, limites directes par service, volumes nommés propres à l'instance, ports HTTP loopback attribués par le contrôleur, healthchecks, jobs d'initialisation déclarés. Aucun `env_file`, `include`, `extends`, Docker build, socket, device, namespace host ou bind mount applicatif arbitraire. Les routes contiennent `hostname`, `service`, `port` ; aucun fragment de configuration proxy. Les opérations de lecture/suppression/renouvellement utilisent la même identité et instance ; une génération monotone protège apply et fermeture. La politique possède `accounts` associant utilisateur SSH à application/environnements, `administrators`, `domain` vide par défaut, plafonds et chemins gérés par le socle.
+`compose` is YAML/JSON rendered on the app side; allowed secrets are already in the environments of the services concerned. The controller validates an explicit subset: image by digest, one replica, direct per-service limits, instance-owned named volumes, loopback HTTP ports assigned by the controller, healthchecks, declared init jobs. No `env_file`, `include`, `extends`, Docker build, socket, device, host namespace, or arbitrary application bind mount. Routes contain `hostname`, `service`, `port`; no proxy config fragments. Read/delete/renew operations use the same identity and instance; monotone generation protects apply and close. Policy has `accounts` mapping SSH user to application/environments, `administrators`, `domain` empty by default, caps and paths managed by the platform.
 
-Sortie JSON : `changed`, `instance`, `status`, `reason` et diagnostics non sensibles. Pas de request brute, secrets ou Compose complet en sortie. Exceptions opérationnelles sanitaires ; journaux de conteneur explicitement demandés uniquement pour l'instance autorisée, avec avertissement que l'app doit elle-même éviter d'y écrire ses secrets.
+JSON output: `changed`, `instance`, `status`, `reason`, and non-sensitive diagnostics. No raw request, secrets, or full Compose in output. Operational exceptions are sanitary; container logs only when explicitly requested for the authorized instance, with warning that the app must avoid writing secrets there.
 
-### Task 1: Contrôleur local, admission et cycle Compose
+### Task 1: Local controller, admission, and Compose lifecycle
 
 **Files:**
 - Create: `collections/ansible_collections/ny/vps/roles/controller/files/vps_platform/{__init__,policy,compose,state,runtime,controller,cli}.py`
@@ -52,39 +52,39 @@ Sortie JSON : `changed`, `instance`, `status`, `reason` et diagnostics non sensi
 - Test: `tests/test_controller.py`, `tests/test_compose.py`, `tests/test_runtime.py`, `tests/helpers.py`
 
 **Interfaces:**
-- Consumes: contrat JSON version 1 ci-dessus et politique hôte JSON ; identité effective transmise par le CLI, jamais depuis la requête.
-- Produces: `Controller(policy, state_dir, runtime).request(payload, actor)` ; runtime Docker/Caddy et CLI `request`, `status`, `previews list`, `previews destroy --instance`, `previews renew --instance`, `cleanup`, `logs --instance --tail`.
-- Le runtime est une frontière injectable ; le registre et le flock restent réels dans les tests.
+- Consumes: JSON contract version 1 above and host JSON policy; effective identity passed by the CLI, never from the request.
+- Produces: `Controller(policy, state_dir, runtime).request(payload, actor)`; Docker/Caddy runtime and CLI `request`, `status`, `previews list`, `previews destroy --instance`, `previews renew --instance`, `cleanup`, `logs --instance --tail`.
+- Runtime is an injectable boundary; registry and flock stay real in tests.
 
-- [ ] **Step 1: écrire les tests comportementaux avant le code.** Les attentes sont littérales, notamment :
+- [ ] **Step 1: write behavioral tests before code.** Expectations are literal, including:
 
 ```python
 def test_third_preview_is_refused_without_evicting_existing_instances():
-    # Deux applications distinctes ont chacune une preview déjà admise.
-    # Une troisième request applique la politique réelle et doit être refusée.
+    # Two distinct applications each already have an admitted preview.
+    # A third request applies real policy and must be refused.
     assert third_result["status"] == "refused"
     assert instance_names == {"alpha-pr-1", "beta-pr-2"}
 ```
 
-Tester réellement concurrence via processus et flock, mise à jour même PR, limites par service/agrégées, identité prod/nonprod, données/noms isolés, refus des configurations dangereuses, idempotence, secrets persistés privés mais absents du registre, fermeture/génération, crash/cleanup incomplet et TTL. Les appels Docker/Caddy sont doublés uniquement lorsqu'ils exigent un daemon ou un serveur.
-- [ ] **Step 2: lancer `python -m unittest discover -s tests -v` et constater l'échec des comportements encore absents.** Implémenter progressivement les modules et relancer le même groupe de tests.
-- [ ] **Step 3: construire le runtime réel.** Utiliser des subprocess argv, délais bornés et stdout/stderr non sensibles ; conserver labels et checks de propriété avant suppression ; pas de prune global. JSON privé atomique, secrets échappant l'interpolation Compose, fichiers `0600`, répertoires `0700`. Réconcilier les états inconnus avec les ressources réelles sans libérer une place à l'aveugle. Des objets app non suivis bloquent les nouvelles admissions.
-- [ ] **Step 4: vérifier puis relire.** Tests réels du CLI, invalid JSON et sorties JSON, chemins fixes en mode privilégié, plan sans mutation et status/cleanup. Fournir evidence RED/GREEN et contrat final précis pour le rôle Ansible.
+Really test concurrency via process and flock, same-PR update, per-service/aggregate limits, prod/nonprod identity, isolated data/names, refusal of dangerous configs, idempotence, secrets persisted privately but absent from registry, close/generation, crash/incomplete cleanup and TTL. Docker/Caddy calls are doubled only when they need a daemon or server.
+- [ ] **Step 2: run `python -m unittest discover -s tests -v` and see missing behaviors fail.** Implement modules progressively and rerun the same test group.
+- [ ] **Step 3: build the real runtime.** Use subprocess argv, bounded delays, non-sensitive stdout/stderr; keep labels and ownership checks before deletion; no global prune. Atomic private JSON, secrets escaping Compose interpolation, `0600` files, `0700` directories. Reconcile unknown states with real resources without freeing a slot blindly. Untracked app objects block new admissions.
+- [ ] **Step 4: verify then review.** Real CLI tests, invalid JSON and JSON outputs, fixed paths in privileged mode, plan without mutation and status/cleanup. Provide RED/GREEN evidence and precise final contract for the Ansible role.
 
-### Task 2: Collection Ansible, serveur et exemple applicatif exécutable
+### Task 2: Ansible collection, server, and runnable application example
 
 **Files:**
 - Create: `ansible.cfg`, `inventories/production/{hosts.yml,group_vars/all.yml}`, `playbooks/{bootstrap,platform,register-app}.yml`
-- Create: `collections/ansible_collections/ny/vps/galaxy.yml`, `roles/{host,ssh,firewall,docker,ingress,controller,app}/{tasks,handlers,defaults,templates}` selon besoin
+- Create: `collections/ansible_collections/ny/vps/galaxy.yml`, `roles/{host,ssh,firewall,docker,ingress,controller,app}/{tasks,handlers,defaults,templates}` as needed
 - Create: `collections/ansible_collections/ny/vps/plugins/modules/deploy_instance.py`
 - Create: `examples/application/deploy/{compose.yml.j2,ansible/{deploy.yml,inventory.yml,requirements.yml,environments/{preview,staging,prod}.yml}}`
-- Test: `tests/test_app_module.py`, checks syntaxe/lint et rendu local des exemples.
+- Test: `tests/test_app_module.py`, syntax/lint checks and local render of examples.
 
 **Interfaces:**
-- Consumes: CLI `vpsctl request` et contrat réel Task 1. Le module Ansible n'accorde pas de sudo général : subprocess fixe `sudo -n /usr/local/sbin/vpsctl request`, JSON stdin, `no_log` pour payload et `supports_check_mode=True` transformant apply en plan.
-- Produces: playbooks utilisables depuis le poste, host vars sûres, collection installable/construisible ; exemple sans secrets réels ou domaine réel.
+- Consumes: CLI `vpsctl request` and real Task 1 contract. The Ansible module grants no general sudo: fixed subprocess `sudo -n /usr/local/sbin/vpsctl request`, JSON stdin, `no_log` for payload and `supports_check_mode=True` turning apply into plan.
+- Produces: playbooks runnable from the workstation, safe host vars, installable/buildable collection; example without real secrets or real domain.
 
-- [ ] **Step 1: écrire et lancer un test du module avant implémentation.** L'entrée apply en check mode doit transmettre `plan`, ne produire aucune réservation, conserver le JSON de sortie filtré et échouer sur erreur de protocole plutôt que déclarer un succès.
+- [ ] **Step 1: write and run a module test before implementation.** Apply input in check mode must send `plan`, produce no reservation, keep filtered JSON output, and fail on protocol error rather than declare success.
 
 ```python
 def test_check_mode_requests_plan_instead_of_apply():
@@ -92,38 +92,38 @@ def test_check_mode_requests_plan_instead_of_apply():
     assert result["changed"] is False
 ```
 
-- [ ] **Step 2: créer bootstrap en deux phases.** Installer les clés de l'administrateur puis tester une connexion indépendante avant durcissement/retrait d'accès initial. `sshd -t`, drop-in validé, reload ; état sûr en cas d'échec ; récupération OVH documentée. Compte administrateur non-root, comptes applicatifs explicitement enregistrés sans docker group, sudoers validé par visudo.
-- [ ] **Step 3: créer platform idempotent.** APT signé Docker Debian 13 avec versions exactes vérifiées, Compose, limites logs ; SSH, règles IPv4/IPv6 INPUT et DOCKER-USER restaurées après daemon/reboot sans supprimer NAT Docker ; Caddy systemd, socket Unix admin, routes contrôlées, aucun ancien domaine. Timer cleanup/pression disque 5 min. Contrôleur installé root-owned, configuration privée et politique cohérente avec Task 1. Aucun conteneur app démarré par platform.
-- [ ] **Step 4: créer le rôle app et l'exemple.** Rendu Compose depuis le dépôt app, limites et volumes isolés, base de test et fixtures synthétiques dans une image pinned ; readiness obligatoire. Référence collection locale fonctionnelle pour smoke test, plus procédure exacte de pinning à un SHA de release sans faux SHA. `no_log`, `diff: false`, secrets explicitement fournis et vérifiés ; pas de `.env` global.
-- [ ] **Step 5: lancer les checks disponibles.** Build/install collection, ansible-playbook --syntax-check bootstrap/platform/register-app/app, ansible-lint, rendu app en localhost sans mutation VPS. Relire et fournir evidence avec versions réellement disponibles.
+- [ ] **Step 2: create bootstrap in two phases.** Install administrator keys then test independent connection before hardening/removing initial access. `sshd -t`, validated drop-in, reload; safe state on failure; OVH recovery documented. Non-root administrator account, application accounts explicitly registered without docker group, sudoers validated with visudo.
+- [ ] **Step 3: create idempotent platform.** Signed APT Docker Debian 13 with verified exact versions, Compose, log limits; SSH, IPv4/IPv6 INPUT and DOCKER-USER rules restored after daemon/reboot without removing Docker NAT; Caddy systemd, Unix admin socket, controlled routes, no old domain. Cleanup/disk pressure timer 5 min. Controller installed root-owned, private config and policy consistent with Task 1. No app container started by platform.
+- [ ] **Step 4: create app role and example.** Compose render from app repo, isolated limits and volumes, test database and synthetic fixtures in a pinned image; readiness required. Working local collection reference for smoke test, plus exact procedure to pin a release SHA without a fake SHA. `no_log`, `diff: false`, secrets explicitly supplied and verified; no global `.env`.
+- [ ] **Step 5: run available checks.** Build/install collection, ansible-playbook --syntax-check bootstrap/platform/register-app/app, ansible-lint, app render on localhost without VPS mutation. Review and provide evidence with actually available versions.
 
-### Task 3: Remplacement de l'héritage, documentation et vérification intégrée
+### Task 3: Legacy replacement, documentation, and integrated verification
 
 **Files:**
 - Modify: `README.md`, `Makefile`, `.gitignore`, `docs/{ARCHITECTURE,CICD}.md`
-- Remove: `docker-compose.yml`, `.env.example`, ancien `caddy/`, `volumes/`, `scripts/sync-env-*`, `docs/DATABASE-CONNECTION.md`, anciens workflows de déploiement/build couplés.
-- Create: `.github/workflows/validate.yml`, `requirements-dev.txt`, `pyproject.toml` et/ou configs lint nécessaires, `docs/{APP-CONTRACT,OPERATIONS,MIGRATION}.md`, `scripts/check.sh`, `tests/integration/` si Docker local utilisable.
+- Remove: `docker-compose.yml`, `.env.example`, old `caddy/`, `volumes/`, `scripts/sync-env-*`, `docs/DATABASE-CONNECTION.md`, old coupled deploy/build workflows.
+- Create: `.github/workflows/validate.yml`, `requirements-dev.txt`, `pyproject.toml` and/or needed lint configs, `docs/{APP-CONTRACT,OPERATIONS,MIGRATION}.md`, `scripts/check.sh`, `tests/integration/` if local Docker usable.
 
 **Interfaces:**
-- Consumes: Tasks 1 et 2, commandes et politiques effectives.
-- Produces: `make setup`, `make check`, `make test`, `make plan`, `make bootstrap`, `make platform`, build collection ; CI validation seule ; guide complet en français.
+- Consumes: Tasks 1 and 2, effective commands and policies.
+- Produces: `make setup`, `make check`, `make test`, `make plan`, `make bootstrap`, `make platform`, collection build; CI validation only; complete guide in plain English.
 
-- [ ] **Step 1: supprimer uniquement l'héritage remplacé.** Pas de catalogue historique ; CI sur push/PR ne fait que valider, aucun secret VPS. Épingler dépendances et Actions par versions/SHA réellement vérifiés.
-- [ ] **Step 2: connecter docs et commandes réelles.** Exemple : `make check` lance lint, tests, syntaxe et build de la collection ; commandes dangereuses nécessitent cible explicite ; toutes les commandes illustrées doivent correspondre à un code créé.
-- [ ] **Step 3: intégration locale disponible.** Docker local : deux apps/previews, troisième refusée, données distinctes, limites effectives, mise à jour et cleanup ciblé. Utiliser uniquement ressources de test marquées, sans toucher aux conteneurs/volumes existants. Si daemon ou VM indisponible, conserver un script reproductible opt-in et rapporter les gates non exécutés sans prétendre une validation réelle.
-- [ ] **Step 4: relire l'ensemble et vérifier `git diff --check`.** Distinguer tests du contrôleur, rendu/syntaxe Ansible, daemon local, VM Debian 13 et VPS réel.
+- [ ] **Step 1: remove only replaced legacy.** No historical catalog; CI on push/PR only validates, no VPS secrets. Pin dependencies and Actions to actually verified versions/SHAs.
+- [ ] **Step 2: connect docs and real commands.** Example: `make check` runs lint, tests, syntax, and collection build; dangerous commands need explicit target; all illustrated commands must match created code.
+- [ ] **Step 3: available local integration.** Local Docker: two apps/previews, third refused, distinct data, effective limits, update and targeted cleanup. Use only marked test resources, without touching existing containers/volumes. If daemon or VM unavailable, keep reproducible opt-in script and report gates not run without claiming real validation.
+- [ ] **Step 4: review the whole and run `git diff --check`.** Separate controller tests, Ansible render/syntax, local daemon, Debian 13 VM, and real VPS.
 
-### Task 4: Revue finale, corrections et bascule locale protégée
+### Task 4: Final review, fixes, and protected local switch
 
 **Files:**
-- Modify: uniquement fichiers des Tasks 1–3 pour corriger les findings reproduits.
-- External optional: dossier original `/Users/nrandriantsarafara/Works/sandbox/vps-services` après archive privée et vérification de concurrence ; aucun changement GitHub ou `.git`.
+- Modify: only Task 1–3 files to fix reproduced findings.
+- External optional: original directory `/Users/nrandriantsarafara/Works/sandbox/vps-services` after private archive and concurrency check; no GitHub or `.git` change.
 
 **Interfaces:**
-- Consumes: diff complet non commité, spec, evidence tests, contrat et guides.
-- Produces: findings traités et état final honnête, implémentation worktree prête et statut distinct du dossier original.
+- Consumes: full uncommitted diff, spec, test evidence, contract and guides.
+- Produces: handled findings and honest final state, worktree implementation ready and status distinct from original directory.
 
-- [ ] **Step 1: revue spec + qualité par un agent distinct puis revue finale des interactions.** Diff non commité empaqueté incluant nouveaux fichiers ; pas de faux range HEAD..HEAD. Corriger les défauts vérifiés avec régression ciblée.
-- [ ] **Step 2: exécuter les gates affectés après corrections.** Pas de multiplication de suites identiques sans nouvelles raisons.
-- [ ] **Step 3: recontrôler le dossier original.** Si HEAD/status et fichiers sont inchangés, préparer une archive privée complète de l'ancien working tree hors Git (`.env` inclus), garder `.git` en place puis remplacer uniquement fichiers du périmètre par les nouveaux fichiers vérifiés, sans copier cache/.venv/état/secrets. Préserver worktrees et remote. Si travail concurrent ou permissions non résolues, ne pas forcer ; rapporter exactement la bascule restante.
-- [ ] **Step 4: rapporter les chemins et preuves.** Aucun commit/push/PR/deploy. Indiquer les gates manquants, l'accès VPS bloqué et la sélection future d'une app/domaine réel.
+- [ ] **Step 1: spec + quality review by a separate agent then final interaction review.** Uncommitted diff packaged including new files; no fake HEAD..HEAD range. Fix verified defects with targeted regression.
+- [ ] **Step 2: run affected gates after fixes.** Do not multiply identical suites without new reasons.
+- [ ] **Step 3: recheck original directory.** If HEAD/status and files unchanged, prepare a full private archive of the old working tree outside Git (including `.env`), keep `.git` in place then replace only in-scope files with verified new files, without copying cache/.venv/state/secrets. Preserve worktrees and remote. If concurrent work or permissions unresolved, do not force; report exactly what switch remains.
+- [ ] **Step 4: report paths and evidence.** No commit/push/PR/deploy. State missing gates, blocked VPS access, and future choice of a real app/domain.

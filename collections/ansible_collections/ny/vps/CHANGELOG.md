@@ -1,25 +1,25 @@
-# Changelog de `ny.vps`
+# Changelog for `ny.vps`
 
 ## 1.3.1
 
-- La garde d’onboarding s’ouvre aussi quand Home Assistant a terminé toutes les étapes : il ne sert alors plus `/api/onboarding` et répond le 404 exact `404: Not Found`. Tout autre 404 reste fermé.
+- The onboarding guard also opens when Home Assistant has finished all steps: it no longer serves `/api/onboarding` and returns the exact 404 `404: Not Found`. Any other 404 stays closed.
 
 ## 1.3.0
 
-- Noms supplémentaires par instance autorisés uniquement par la politique administrateur ; garde privée d’onboarding fermée en cas d’erreur et blocage permanent de la création publique d’administrateur.
-- `vpsctl ingress refresh` réconcilie les objets et republie les routes sous verrou, sans nouvelle génération ni redémarrage applicatif ; maintenance toutes les cinq minutes et aucun reload si la configuration reste identique.
-- `stop_grace_period` accepté entre 1 et 300 secondes et contrôlé dans le runtime Docker.
+- Extra hostnames per instance allowed only by administrator policy; private onboarding guard closed on error and permanent block of public administrator creation.
+- `vpsctl ingress refresh` reconciles objects and republishes routes under lock, with no new generation or application restart; maintenance every five minutes and no reload if the configuration is unchanged.
+- `stop_grace_period` accepted between 1 and 300 seconds and checked in the Docker runtime.
 
 ## 1.2.0
 
-- Budgets d'admission réglables depuis l'inventaire : `controller_budgets` et `controller_preview_instance_budget` (playbooks : `vps_budgets`, `vps_preview_instance_budget`). Défauts inchangés.
+- Admission budgets configurable from inventory: `controller_budgets` and `controller_preview_instance_budget` (playbooks: `vps_budgets`, `vps_preview_instance_budget`). Defaults unchanged.
 
 ## 1.1.0
 
-- Plusieurs routes par instance : le nom principal et `<préfixe>.<nom principal>`, chacun une fois ; toutes sondées avant publication et pour `http_status`. Protocole inchangé (version 1).
+- Multiple routes per instance: primary name and `<prefix>.<primary name>`, each once; all probed before publication and for `http_status`. Protocol unchanged (version 1).
 
 ## 1.0.0
 
-- Protocole de requête version 1 entre les dépôts applicatifs et `vpsctl`.
-- Rôles du socle : `host`, `ssh`, `firewall`, `docker`, `ingress`, `controller`.
-- Rôle applicatif `app` et module `deploy_instance`.
+- Protocol version 1 request between application repositories and `vpsctl`.
+- Platform roles: `host`, `ssh`, `firewall`, `docker`, `ingress`, `controller`.
+- Application role `app` and `deploy_instance` module.

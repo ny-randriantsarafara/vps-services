@@ -1,96 +1,96 @@
-# Exploitation
+# Operations
 
-Toutes les commandes partent de la racine du dépôt, après `make setup`. Celles qui touchent le serveur exigent `TARGET=vps-d9d9aca9`.
+All commands run from the repository root, after `make setup`. Those that touch the server require `TARGET=vps-d9d9aca9`.
 
-## 1. Vérifier l'empreinte du serveur hors bande
+## 1. Verify the server host key out of band
 
-Les inventaires imposent `StrictHostKeyChecking=yes` et le fichier `inventories/production/known_hosts`. Ansible refuse donc de se connecter tant que l'empreinte n'a pas été vérifiée et inscrite. Ne jamais contourner avec `StrictHostKeyChecking=no`.
+Inventories require `StrictHostKeyChecking=yes` and the file `inventories/production/known_hosts`. Ansible therefore refuses to connect until the host key has been verified and recorded. Never bypass with `StrictHostKeyChecking=no`.
 
-1. Ouvrir la console KVM du VPS depuis l'espace client OVH et y lire l'empreinte réelle :
+1. Open the VPS KVM console from the OVH customer area and read the real fingerprint there:
 
    ```bash
    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
    ```
 
-2. Sur le poste, récupérer la clé annoncée par le réseau et comparer les deux empreintes :
+2. On the workstation, fetch the key announced by the network and compare the two fingerprints:
 
    ```bash
    ssh-keyscan -t ed25519 51.210.10.127 > /tmp/vps-host-key
    ssh-keygen -lf /tmp/vps-host-key
    ```
 
-3. Seulement si elles sont identiques, enregistrer la clé dans l'inventaire. Une clé d'hôte est publique et peut être commitée :
+3. Only if they match, record the key in the inventory. A host key is public and may be committed:
 
    ```bash
    cp /tmp/vps-host-key inventories/production/known_hosts
    ```
 
-Chaque dépôt applicatif fait de même dans `deploy/ansible/known_hosts`. Après une réinstallation du VPS, l'empreinte change : recommencer la vérification, ne pas supprimer la ligne à l'aveugle.
+Each application repository does the same in `deploy/ansible/known_hosts`. After a VPS reinstall, the fingerprint changes: repeat verification; do not delete the line blindly.
 
-## 2. Accès initial
+## 2. Initial access
 
-L'image Debian d'OVH fournit le compte `debian` avec la clé `~/.ssh/id_ed25519.pub` injectée, mais exige un changement de mot de passe qui bloque actuellement SSH. Le résoudre dans la console KVM OVH, en se connectant avec le mot de passe reçu d'OVH. Aucun mot de passe n'entre dans ce dépôt.
+The OVH Debian image provides the `debian` account with `~/.ssh/id_ed25519.pub` injected, but requires a password change that currently blocks SSH. Fix that in the OVH KVM console by logging in with the password received from OVH. No password goes into this repository.
 
-Renseigner ensuite les clés publiques de l'administrateur dans `inventories/production/group_vars/all.yml` :
+Then set the administrator public keys in `inventories/production/group_vars/all.yml`:
 
 ```yaml
 vps_admin_public_keys:
-  - "ssh-ed25519 AAAA... poste-principal"
+  - "ssh-ed25519 AAAA... main-workstation"
 ```
 
 ## 3. Bootstrap
 
-Garder une session `debian` ouverte dans un autre terminal pendant toute l'opération.
+Keep a `debian` session open in another terminal for the whole operation.
 
 ```bash
 make bootstrap TARGET=vps-d9d9aca9
 ```
 
-Chaque étape ouvre sa propre connexion ; un échec arrête la suite avant tout retrait d'accès :
+Each step opens its own connection; a failure stops the sequence before any access is removed:
 
-1. En `debian` : vérifier Debian 13, créer `vps-admin` (clés seulement, sudo validé par `visudo`).
-2. En `vps-admin` : connexion indépendante et `sudo` effectif.
-3. Durcissement SSH : `/etc/ssh/sshd_config.d/10-vps-platform.conf`, validé par `sshd -t` avant reload ; un fichier refusé est retiré sans reload.
-4. Nouvelle connexion `vps-admin` après durcissement.
-5. Retrait des clés du compte `debian` (`vps_revoke_initial_user_key`).
+1. As `debian`: verify Debian 13, create `vps-admin` (keys only, sudo validated with `visudo`).
+2. As `vps-admin`: independent connection and working `sudo`.
+3. SSH hardening: `/etc/ssh/sshd_config.d/10-vps-platform.conf`, validated with `sshd -t` before reload; a rejected file is removed without reload.
+4. New `vps-admin` connection after hardening.
+5. Remove keys from the `debian` account (`vps_revoke_initial_user_key`).
 
-Vérifier ensuite depuis le poste : `ssh vps-admin@51.210.10.127` fonctionne, `ssh root@51.210.10.127` et l'authentification par mot de passe sont refusés.
+Then verify from the workstation: `ssh vps-admin@51.210.10.127` works; `ssh root@51.210.10.127` and password authentication are refused.
 
-## 4. Récupération OVH
+## 4. OVH recovery
 
-Si SSH devient inaccessible :
+If SSH becomes unreachable:
 
-- **Console KVM** (espace client OVH, VPS, KVM) : connexion locale, indépendante de SSH et du firewall. Corriger ou retirer `/etc/ssh/sshd_config.d/10-vps-platform.conf`, puis `systemctl reload ssh` ; ou arrêter le firewall avec `systemctl stop vps-firewall`.
-- **Mode rescue** : redémarrer le VPS en rescue depuis l'espace client, monter le disque système, puis corriger `authorized_keys`, le drop-in SSH ou désactiver `vps-firewall.service`. Redémarrer ensuite sur le disque normal.
+- **KVM console** (OVH customer area, VPS, KVM): local login, independent of SSH and the firewall. Fix or remove `/etc/ssh/sshd_config.d/10-vps-platform.conf`, then `systemctl reload ssh`; or stop the firewall with `systemctl stop vps-firewall`.
+- **Rescue mode**: reboot the VPS in rescue from the customer area, mount the system disk, then fix `authorized_keys`, the SSH drop-in, or disable `vps-firewall.service`. Then reboot to the normal disk.
 
-La sauvegarde automatique OVH reste activée. Ne pas la restaurer pour réparer un accès : elle peut réintroduire l'ancienne stack. Le socle ne restaure aucune application depuis cette sauvegarde.
+Automatic OVH backup stays enabled. Do not restore it to fix access: it can reintroduce the old stack. The platform restores no application from that backup.
 
-## 5. Socle
+## 5. Platform
 
 ```bash
-make plan TARGET=vps-d9d9aca9       # simulation --check --diff
+make plan TARGET=vps-d9d9aca9       # --check --diff simulation
 make platform TARGET=vps-d9d9aca9
-make platform TARGET=vps-d9d9aca9   # deuxième passage : aucun changement attendu
+make platform TARGET=vps-d9d9aca9   # second pass: no change expected
 ```
 
-Sur un hôte vierge, `make plan` peut signaler des tâches qui dépendent de paquets pas encore installés : c'est une aide à la relecture, pas une preuve.
+On a fresh host, `make plan` may flag tasks that depend on packages not yet installed: that is a review aid, not proof.
 
-`platform.yml` installe hôte, SSH, firewall, Docker, Caddy et le contrôleur, puis refait une connexion après les changements SSH et firewall. Il ne démarre aucune application.
+`platform.yml` installs host, SSH, firewall, Docker, Caddy, and the controller, then reconnects after SSH and firewall changes. It does not start any application.
 
-Contrôles depuis une **autre machine**, en IPv4 puis en IPv6 :
+Checks from **another machine**, IPv4 then IPv6:
 
 ```bash
 nc -vz 51.210.10.127 22 && nc -vz 51.210.10.127 80 && nc -vz 51.210.10.127 443
-nc -vz -w 3 51.210.10.127 5432    # doit échouer, comme tout autre port
+nc -vz -w 3 51.210.10.127 5432    # must fail, like any other port
 nc -6 -vz 2001:41d0:404:200::74ec 443
 nc -6 -vz -w 3 2001:41d0:404:200::74ec 5432
 ```
 
-Pour prouver le filtrage `DOCKER-USER`, publier temporairement un conteneur de test sur un port interdit, vérifier qu'il reste injoignable de l'extérieur, puis le supprimer. Un contrôle de fichier ne remplace pas cet essai.
+To prove `DOCKER-USER` filtering, temporarily publish a test container on a forbidden port, verify it stays unreachable from outside, then remove it. A file check does not replace this test.
 
-## 6. Enregistrer une application
+## 6. Register an application
 
-Déclarer les comptes dans `vps_deploy_accounts` : un compte nonprod pour staging et previews, un compte distinct pour la production.
+Declare accounts in `vps_deploy_accounts`: one nonprod account for staging and previews, a separate account for production.
 
 ```yaml
 vps_deploy_accounts:
@@ -108,11 +108,11 @@ vps_deploy_accounts:
 make register-app TARGET=vps-d9d9aca9
 ```
 
-Chaque compte reçoit ses clés et une seule règle sudo, `/usr/local/sbin/vpsctl request`, validée par `visudo`. Aucun groupe `docker`. La politique `/etc/vps-platform/policy.json` est réécrite ; aucun conteneur n'est lancé.
+Each account gets its keys and a single sudo rule, `/usr/local/sbin/vpsctl request`, validated with `visudo`. No `docker` group. Policy `/etc/vps-platform/policy.json` is rewritten; no container is started.
 
-## 7. Commandes `vpsctl`
+## 7. `vpsctl` commands
 
-Réservées aux administrateurs (`vps-admin` et `root`) :
+For administrators only (`vps-admin` and `root`):
 
 ```bash
 ssh vps-admin@51.210.10.127 sudo vpsctl status
@@ -123,51 +123,51 @@ ssh vps-admin@51.210.10.127 sudo vpsctl previews destroy --instance exemple-pr-4
 ssh vps-admin@51.210.10.127 sudo vpsctl cleanup
 ```
 
-Toutes répondent en JSON ; code de sortie 2 pour un refus, 1 pour un échec. `status` liste les instances, les objets Docker non suivis (`untracked_instances`), l'espace libre et `disk_warning` sous 15 GiB. `previews destroy` est destructif pour les seules données de cette preview ; prod et staging sont refusés. `cleanup` supprime les previews expirées ou abandonnées, comme le timer.
+All respond in JSON; exit code 2 for refusal, 1 for failure. `status` lists instances, untracked Docker objects (`untracked_instances`), free space, and `disk_warning` below 15 GiB. `previews destroy` is destructive for that preview’s data only; prod and staging are refused. `cleanup` removes expired or abandoned previews, like the timer.
 
-Le timer `vps-platform-maintenance.timer` lance `status` puis `cleanup` toutes les cinq minutes :
+The `vps-platform-maintenance.timer` runs `status` then `cleanup` every five minutes:
 
 ```bash
 systemctl list-timers vps-platform-maintenance.timer
 journalctl -u vps-platform-maintenance --since today
 ```
 
-## 8. Audit et état
+## 8. Audit and state
 
 ```bash
 sudo tail -n 20 /var/lib/vps-platform/audit.jsonl
 sudo cat /var/lib/vps-platform/registry.json
 ```
 
-L'audit contient date, acteur, opération, génération, digests, instance, statut et motif ; jamais de secret. Le registre ne contient pas de secret non plus. Les fichiers `/srv/vps/apps/<application>/<env>/compose.json` en contiennent : ne pas les copier dans un ticket ou une CI.
+Audit holds time, actor, operation, generation, digests, instance, status, and reason; never secrets. The registry has no secrets either. Files `/srv/vps/apps/<application>/<env>/compose.json` do: do not copy them into a ticket or CI.
 
-## 9. Politique
+## 9. Policy
 
-`/etc/vps-platform/policy.json` est généré par Ansible depuis l'inventaire : `domain` (`vps_domain`), `preview_limit` (`vps_preview_limit`), `accounts` (`vps_deploy_accounts`), `budgets` (`vps_budgets`), `preview_instance_budget` (`vps_preview_instance_budget`) et `administrators`. Une modification manuelle est écrasée au prochain `platform` ou `register-app`.
+`/etc/vps-platform/policy.json` is generated by Ansible from inventory: `domain` (`vps_domain`), `preview_limit` (`vps_preview_limit`), `accounts` (`vps_deploy_accounts`), `budgets` (`vps_budgets`), `preview_instance_budget` (`vps_preview_instance_budget`), and `administrators`. A manual edit is overwritten on the next `platform` or `register-app`.
 
-Les autres clés gardent les valeurs par défaut du contrôleur (`vps_platform/policy.py`) :
+Other keys keep controller defaults (`vps_platform/policy.py`):
 
-| Clé | Défaut | Effet |
+| Key | Default | Effect |
 | --- | --- | --- |
-| `preview_ttl_seconds` | 259200 | Expiration d'une preview (72 h) |
-| `preparing_lease_seconds` | 900 | Bail d'une livraison en cours avant nettoyage |
-| `lock_timeout_seconds` | 600 | Attente maximale du verrou |
-| `minimum_free_memory_mib` | 512 | Marge de `MemAvailable` après une hausse de réservation |
-| `minimum_free_disk_gib` | 10 | Réserve disque ; en dessous, admissions gelées |
-| `disk_warning_gib` | 15 | Seuil d'avertissement de `status` |
-| `image_growth_reserve_gib` | 2 | Place prévue pour les pulls |
-| `minimum_free_inode_ratio` | 0.05 | Part d'inodes libres exigée |
-| `port_start`, `port_end` | 20000, 29999 | Ports loopback loués |
+| `preview_ttl_seconds` | 259200 | Preview expiration (72 h) |
+| `preparing_lease_seconds` | 900 | Lease for delivery in progress before cleanup |
+| `lock_timeout_seconds` | 600 | Maximum lock wait |
+| `minimum_free_memory_mib` | 512 | `MemAvailable` margin after a reservation increase |
+| `minimum_free_disk_gib` | 10 | Disk reserve; below this, admissions frozen |
+| `disk_warning_gib` | 15 | `status` warning threshold |
+| `image_growth_reserve_gib` | 2 | Headroom planned for pulls |
+| `minimum_free_inode_ratio` | 0.05 | Required free inode ratio |
+| `port_start`, `port_end` | 20000, 29999 | Leased loopback ports |
 
-Baisser `vps_preview_limit` sous le nombre de previews présentes bloque les créations sans en supprimer. L'augmenter ne relève ni le CPU, ni la mémoire, ni le disque.
+Lowering `vps_preview_limit` below the current preview count blocks creation without removing any. Raising it does not increase CPU, memory, or disk.
 
 ## 10. Caddy
 
-- Les applications sont servies sur `:443` uniquement. Le port 80 reste à l'HTTPS automatique de Caddy : défis ACME et redirection 308 vers HTTPS.
-- Domaine des instances : `apps.nyhasinavalona.com`. Le DNS Cloudflare porte `*.apps` en A et AAAA vers le VPS, **sans proxy** : Caddy obtient lui-même un certificat par nom au premier chargement de la route. Le wildcard couvre aussi les noms secondaires (`cms.<instance>.apps…`).
-- Un nom inconnu reçoit un 404 neutre.
-- Administration par `/run/caddy/admin.sock`, inaccessible aux conteneurs et aux comptes de déploiement.
-- `vpsctl` écrit la configuration complète dans `/etc/caddy/vps-platform.json` puis la charge ; un redémarrage de Caddy reprend donc les routes actives.
+- Applications are served on `:443` only. Port 80 stays for Caddy automatic HTTPS: ACME challenges and 308 redirect to HTTPS.
+- Instance domain: `apps.nyhasinavalona.com`. Cloudflare DNS carries `*.apps` as A and AAAA to the VPS, **without proxy**: Caddy obtains its own certificate per name on first route load. The wildcard also covers secondary names (`cms.<instance>.apps…`).
+- An unknown name gets a neutral 404.
+- Administration via `/run/caddy/admin.sock`, unreachable from containers and deploy accounts.
+- `vpsctl` writes the full configuration to `/etc/caddy/vps-platform.json` then loads it; a Caddy restart therefore picks up active routes.
 
 ```bash
 journalctl -u caddy --since "1 hour ago"
@@ -182,23 +182,23 @@ sudo iptables -S VPS-INPUT && sudo ip6tables -S VPS-INPUT
 sudo iptables -S DOCKER-USER && sudo ip6tables -S DOCKER-USER
 sudo docker compose -p vps-exemple-pr-42 ps
 sudo docker ps -a --filter label=vps.platform.instance=exemple-pr-42
-sudo docker inspect <conteneur>
+sudo docker inspect <container>
 df -h / && df -i /
 ```
 
-### Objets non suivis ou registre ambigu
+### Untracked objects or ambiguous registry
 
-Un objet Docker marqué `vps.platform.*` sans entrée de registre, ou un registre illisible, bloque les admissions (`untracked runtime objects block admission`, `registry unreadable; operator reconciliation required`). Pour réparer :
+A Docker object labeled `vps.platform.*` with no registry entry, or an unreadable registry, blocks admissions (`untracked runtime objects block admission`, `registry unreadable; operator reconciliation required`). To repair:
 
-1. Sauvegarder `registry.json` hors du répertoire d'état, en `0600`.
-2. Identifier le périmètre exact avec `docker ps -a`, `docker volume ls` et `docker network ls` filtrés par `label=vps.platform.instance=<instance>`.
-3. Supprimer uniquement ces objets, ou corriger l'entrée du registre, puis relancer `vpsctl status`.
+1. Back up `registry.json` outside the state directory, mode `0600`.
+2. Identify the exact scope with `docker ps -a`, `docker volume ls`, and `docker network ls` filtered by `label=vps.platform.instance=<instance>`.
+3. Remove only those objects, or fix the registry entry, then run `vpsctl status` again.
 
-Jamais de `docker system prune --volumes` ni de suppression globale : les données de production et de staging seraient perdues.
+Never `docker system prune --volumes` or global deletion: production and staging data would be lost.
 
-### Rafraîchir une garde d’onboarding
+### Refresh an onboarding guard
 
-Configurer `controller_instance_hostnames` et `controller_onboarding_guards` dans les variables du rôle contrôleur, uniquement depuis l’inventaire administrateur. Exemple pour une instance :
+Set `controller_instance_hostnames` and `controller_onboarding_guards` in controller role variables, only from the administrator inventory. Example for one instance:
 
 ```yaml
 controller_instance_hostnames:
@@ -210,6 +210,6 @@ controller_onboarding_guards:
     step: user
 ```
 
-Après création privée du propriétaire par tunnel SSH, exécuter `sudo vpsctl ingress refresh`. Cette commande administrateur prend le verrou du registre, vérifie la propriété des objets existants et republie les routes prêtes. Elle ne change pas les générations et ne démarre ni arrête les applications. Une configuration Caddy identique ne provoque aucun reload. La maintenance exécute également ce refresh toutes les cinq minutes ; le nettoyage des previews garde ses règles existantes.
+After the owner is created privately via SSH tunnel, run `sudo vpsctl ingress refresh`. This administrator command takes the registry lock, verifies ownership of existing objects, and republishes ready routes. It does not change generations or start or stop applications. An identical Caddy configuration causes no reload. Maintenance also runs this refresh every five minutes; preview cleanup keeps its existing rules.
 
-Une garde fermée est exposée comme `http_status: protected`, indépendamment de la santé locale. Après un onboarding complet, Home Assistant ne sert plus `/api/onboarding` : son 404 exact `404: Not Found` ouvre la garde, tout autre 404 la laisse fermée. Les sondes d’onboarding visent seulement le port loopback enregistré, sans redirection, avec un délai de trois secondes et une limite de 64 Kio. Le chemin public `/api/onboarding/users*` reste toujours interdit ; continuer les créations de propriétaire via le tunnel privé après une remise à zéro.
+A closed guard is exposed as `http_status: protected`, regardless of local health. After full onboarding, Home Assistant no longer serves `/api/onboarding`: its exact 404 `404: Not Found` opens the guard; any other 404 leaves it closed. Onboarding probes target only the registered loopback port, no redirect, with a three-second timeout and a 64 KiB limit. The public path `/api/onboarding/users*` stays forbidden; continue owner creation via the private tunnel after a reset.

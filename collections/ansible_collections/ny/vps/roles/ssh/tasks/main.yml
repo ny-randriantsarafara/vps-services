@@ -22,7 +22,7 @@
 
     - name: Stop without reloading an invalid SSH configuration
       ansible.builtin.fail:
-        msg: La configuration SSH complète est invalide ; le service n'a pas été rechargé.
+        msg: The full SSH configuration is invalid; the service was not reloaded.
 
 - name: Apply the SSH configuration before the next connection test
   ansible.builtin.meta: flush_handlers
@@ -40,5 +40,5 @@
       - "'passwordauthentication no' in ssh_effective_configuration.stdout_lines"
       - "'kbdinteractiveauthentication no' in ssh_effective_configuration.stdout_lines"
       - "'pubkeyauthentication yes' in ssh_effective_configuration.stdout_lines"
-    fail_msg: La configuration SSH effective ne correspond pas au durcissement attendu.
+    fail_msg: The effective SSH configuration does not match the expected hardening.
   when: not ansible_check_mode

@@ -16,7 +16,7 @@
         that:
           - release_generation | int > 0
           - exemple_web_image is ansible.builtin.match('^[^@\s]+@sha256:[a-f0-9]{64}$')
-        fail_msg: Fournir release_generation et exemple_web_image (image publiée, par digest).
+        fail_msg: Provide release_generation and exemple_web_image (published image, by digest).
       when: delivery_operation in ['apply', 'plan']
       tags: [always]
 
@@ -24,7 +24,7 @@
       ansible.builtin.assert:
         that:
           - exemple_database_password | default('') | length >= 24
-        fail_msg: Fournir exemple_database_password depuis un fichier privé (-e @/chemin/prive.yml).
+        fail_msg: Provide exemple_database_password from a private file (-e @/path/private.yml).
       when: delivery_operation in ['apply', 'plan']
       tags: [always]
   roles:

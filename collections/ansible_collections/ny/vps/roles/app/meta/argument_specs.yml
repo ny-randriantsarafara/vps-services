@@ -1,51 +1,51 @@
 ---
 argument_specs:
   main:
-    short_description: Livrer ou gérer une instance d'application via vpsctl
+    short_description: Deliver or manage an application instance via vpsctl
     description:
-      - Rend le Compose de l'application sur le poste, puis transmet une requête du protocole version 1.
-      - L'identité est celle du compte SSH de déploiement ; la requête ne la choisit pas.
+      - Renders the application Compose on the operator machine, then sends a protocol version 1 request.
+      - Identity is the SSH deploy account; the request does not choose it.
     options:
       app_application:
-        description: Clé de l'application enregistrée sur le VPS.
+        description: Application key registered on the VPS.
         type: str
         required: true
       app_environment:
-        description: Environnement de l'instance.
+        description: Instance environment.
         type: str
         required: true
         choices: [prod, staging, preview]
       app_pull_request:
-        description: Numéro de pull request, obligatoire pour une preview seulement.
+        description: Pull request number, required for preview only.
         type: int
       app_generation:
-        description: Génération de livraison, croissante pour une même instance.
+        description: Delivery generation, increasing for the same instance.
         type: int
       app_operation:
-        description: Opération demandée au contrôleur. En mode check, apply devient plan.
+        description: Operation requested from the controller. In check mode, apply becomes plan.
         type: str
         default: apply
         choices: [apply, plan, destroy, renew, status, logs]
       app_compose_template:
-        description: Modèle Jinja du Compose de l'application, pour apply et plan.
+        description: Jinja template for the application Compose, for apply and plan.
         type: path
       app_routes:
-        description: Routes HTTP, chacune avec hostname, service et port.
+        description: HTTP routes, each with hostname, service, and port.
         type: list
         elements: dict
         default: []
       app_storage_budget_gib:
-        description: Budget de croissance des données de l'instance, en GiB.
+        description: Instance data growth budget, in GiB.
         type: float
       app_reopen:
-        description: Recréer explicitement une preview fermée.
+        description: Explicitly recreate a closed preview.
         type: bool
         default: false
       app_logs_tail:
-        description: Nombre de lignes pour l'opération logs.
+        description: Line count for the logs operation.
         type: int
         default: 100
       app_render_output:
-        description: Fichier local privé où écrire la livraison rendue ; vide pour ne rien écrire.
+        description: Private local file to write the rendered delivery; empty to write nothing.
         type: str
         default: ""

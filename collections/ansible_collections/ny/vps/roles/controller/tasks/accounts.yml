@@ -65,5 +65,5 @@
   ansible.builtin.assert:
     that:
       - (controller_status.stdout | from_json)['status'] == 'status'
-    fail_msg: vpsctl refuse la politique ou ne lit pas l'état Docker ; voir sa sortie JSON.
+    fail_msg: vpsctl rejects the policy or cannot read Docker state; see its JSON output.
   when: not ansible_check_mode

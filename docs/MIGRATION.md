@@ -1,46 +1,46 @@
-# Migration depuis la stack Supabase
+# Migration from the Supabase stack
 
-Ce dépôt hébergeait une stack Supabase commune (Postgres, Redis, Kong, Studio, Supavisor…) derrière Caddy, déployée par GitHub Actions à chaque push sur `main`. Le VPS a été réinstallé en Debian 13 : cet état a disparu et **n'est pas une liste d'applications à redéployer**.
+This repository hosted a shared Supabase stack (Postgres, Redis, Kong, Studio, Supavisor…) behind Caddy, deployed by GitHub Actions on every push to `main`. The VPS was reinstalled on Debian 13: that state is gone and **is not a list of applications to redeploy**.
 
-## Ce qui a été retiré
+## What was removed
 
-| Héritage | Remplacement |
+| Legacy | Replacement |
 | --- | --- |
-| `docker-compose.yml`, `volumes/`, `caddy/Caddyfile` | Instances Compose par application, routes validées par `vpsctl` |
-| `.env.example`, `scripts/sync-env-*.sh` | Secrets privés par instance, fournis par chaque application |
-| `.github/workflows/deploy.yml` (push sur `main`) | `validate.yml`, sans secret ni déploiement |
-| Workflows réutilisables `build-image.yml`, `deploy-compose.yml`, `deploy-service.yml` | Rôle `ny.vps.app` installé à un SHA de release |
-| `docs/DATABASE-CONNECTION.md`, tunnels SSH vers Postgres/Redis | Chaque application possède sa base, isolée par instance |
-| Cibles `make up`, `up-all`, `tunnel`, `sync-env` | `make setup`, `check`, `plan`, `bootstrap`, `platform`, `register-app` |
+| `docker-compose.yml`, `volumes/`, `caddy/Caddyfile` | Per-application Compose instances, routes validated by `vpsctl` |
+| `.env.example`, `scripts/sync-env-*.sh` | Private secrets per instance, supplied by each application |
+| `.github/workflows/deploy.yml` (push to `main`) | `validate.yml`, no secrets or deployment |
+| Reusable workflows `build-image.yml`, `deploy-compose.yml`, `deploy-service.yml` | `ny.vps.app` role installed at a release SHA |
+| `docs/DATABASE-CONNECTION.md`, SSH tunnels to Postgres/Redis | Each application has its own database, isolated per instance |
+| Targets `make up`, `up-all`, `tunnel`, `sync-env` | `make setup`, `check`, `plan`, `bootstrap`, `platform`, `register-app` |
 
-Aucune ancienne application n'est restaurée, ni depuis Git ni depuis la sauvegarde OVH.
+No old application is restored, neither from Git nor from the OVH backup.
 
-## Avant le premier push de cette refonte
+## Before the first push of this rewrite
 
-Le retrait des fichiers ne neutralise pas les appelants existants. Avant tout push susceptible de déclencher un workflow :
+Removing files does not neutralize existing callers. Before any push that might trigger a workflow:
 
-1. **Inventorier les appelants** des workflows réutilisables : rechercher `ny-randriantsarafara/vps-services/.github/workflows/` dans les dépôts applicatifs. Un appelant épinglé sur un ancien SHA continue de fonctionner après la refonte.
-2. **Révoquer leurs accès** au VPS : supprimer les secrets `VPS_HOST`, `VPS_HOST_KEY`, `VPS_SSH_KEY` et `VPS_USER` de ce dépôt et des appelants. Ne pas installer la clé publique correspondante sur le nouveau serveur, et vérifier qu'elle n'est pas celle injectée par OVH pour le compte `debian`.
-3. **Vérifier les déclencheurs** dans GitHub : `deploy.yml` se déclenchait sur push vers `main`. Désactiver explicitement les anciens workflows si un appelant reste actif. Ne pas compter sur `chore:` ou `[skip ci]`.
-4. Planifier la migration de chaque application vers le contrat (voir [APP-CONTRACT](APP-CONTRACT.md)), sans déployer pendant cette étape.
+1. **Inventory callers** of reusable workflows: search for `ny-randriantsarafara/vps-services/.github/workflows/` in application repositories. A caller pinned to an old SHA keeps working after the rewrite.
+2. **Revoke their VPS access**: remove secrets `VPS_HOST`, `VPS_HOST_KEY`, `VPS_SSH_KEY`, and `VPS_USER` from this repository and callers. Do not install the matching public key on the new server, and verify it is not the one OVH injected for the `debian` account.
+3. **Check triggers** in GitHub: `deploy.yml` ran on push to `main`. Explicitly disable old workflows if a caller stays active. Do not rely on `chore:` or `[skip ci]`.
+4. Plan migration of each application to the contract (see [APP-CONTRACT](APP-CONTRACT.md)), without deploying during this step.
 
-## Dossier local d'origine
+## Original local directory
 
-Le checkout `/Users/nrandriantsarafara/Works/sandbox/vps-services` contient un `.env` ignoré (ancienne configuration Supabase) :
+The checkout `/Users/nrandriantsarafara/Works/sandbox/vps-services` contains an ignored `.env` (old Supabase configuration):
 
-- Avant remplacement, l'ancien working tree complet, `.env` compris, est archivé hors Git avec des permissions privées et une somme de contrôle, sans afficher son contenu.
-- `.git`, le remote et les worktrees sont conservés ; seuls les fichiers du périmètre sont remplacés.
-- Le `.env` n'entre jamais dans la nouvelle histoire. Un secret encore utile est replacé par sélection explicite, dans le fichier privé de l'application concernée.
+- Before replacement, archive the full old working tree, including `.env`, outside Git with private permissions and a checksum, without printing its contents.
+- Keep `.git`, the remote, and worktrees; only replace files in scope.
+- The `.env` never enters the new history. A secret still needed is moved back by explicit selection into the private file of the relevant application.
 
-Retour arrière local : extraire l'archive dans un dossier séparé, sans relancer ses anciennes commandes de déploiement.
+Local rollback: extract the archive into a separate folder, without rerunning its old deploy commands.
 
-## Ensuite
+## Next steps
 
-1. Résoudre l'accès initial et vérifier l'empreinte ([OPERATIONS](OPERATIONS.md), sections 1 à 3).
-2. Valider le socle sur une VM Debian 13 jetable : premier passage, second passage sans changement, reboot, nouvelles connexions SSH, ports IPv4/IPv6 depuis une autre machine.
-3. Provisionner le VPS réel après accord, puis mesurer `df`, la mémoire au repos et les règles réseau ; ajuster les enveloppes si nécessaire.
-4. Enregistrer une application de test explicitement nommée et dérouler un cycle complet : deux previews, troisième refusée, mise à jour, fermeture, expiration.
-5. Choisir un domaine dédié et son mode TLS : `apps.nyhasinavalona.com`, wildcard DNS sans proxy, certificats obtenus par Caddy (fait le 11/10/2026).
-6. Adopter le contrat application par application. Production, sauvegardes hors VPS et exercice de restauration sont propres à chaque application.
+1. Fix initial access and verify the host key ([OPERATIONS](OPERATIONS.md), sections 1–3).
+2. Validate the platform on a disposable Debian 13 VM: first pass, second pass with no change, reboot, new SSH connections, IPv4/IPv6 ports from another machine.
+3. Provision the real VPS after agreement, then measure `df`, idle memory, and network rules; adjust envelopes if needed.
+4. Register an explicitly named test application and run a full cycle: two previews, third refused, update, close, expiration.
+5. Choose a dedicated domain and TLS mode: `apps.nyhasinavalona.com`, wildcard DNS without proxy, certificates from Caddy (done 11/10/2026).
+6. Adopt the contract application by application. Production, off-VPS backups, and restore drills belong to each application.
 
-Retour arrière serveur : maintenance explicite du socle. La sauvegarde OVH est conservée, mais sa restauration réintroduirait l'ancienne stack.
+Server rollback: explicit maintenance of the platform. The OVH backup is kept, but restoring it would reintroduce the old stack.
