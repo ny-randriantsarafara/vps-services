@@ -102,5 +102,5 @@
       - ingress_admin_socket_state.stat.issock
       - not ingress_admin_socket_state.stat.roth
       - not ingress_admin_socket_state.stat.woth
-    fail_msg: Caddy ne tourne pas dans la version épinglée ou son socket d'administration est exposé.
+    fail_msg: Caddy is not running the pinned version or its admin socket is exposed.
   when: not ansible_check_mode

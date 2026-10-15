@@ -85,5 +85,5 @@
     that:
       - (docker_running_versions.stdout | from_json)['Server']['Version'] == docker_engine_version
       - docker_running_compose.stdout | trim == docker_compose_version
-    fail_msg: Les versions Docker en service ne correspondent pas aux versions épinglées.
+    fail_msg: Running Docker versions do not match the pinned versions.
   when: not ansible_check_mode

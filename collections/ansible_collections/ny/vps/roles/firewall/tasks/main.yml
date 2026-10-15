@@ -15,7 +15,7 @@
   ansible.builtin.assert:
     that:
       - "'nf_tables' in firewall_iptables_version.stdout"
-    fail_msg: iptables doit utiliser le backend nf_tables (iptables-nft).
+    fail_msg: iptables must use the nf_tables backend (iptables-nft).
 
 - name: Determine the public interfaces
   ansible.builtin.set_fact:
@@ -27,7 +27,7 @@
   ansible.builtin.assert:
     that:
       - firewall_public_interfaces | length > 0
-    fail_msg: Aucune interface publique détectée ; les règles DOCKER-USER ne peuvent pas être écrites.
+    fail_msg: No public interface detected; DOCKER-USER rules cannot be written.
 
 - name: Install the firewall script
   ansible.builtin.template:
@@ -71,7 +71,7 @@
   ansible.builtin.assert:
     that:
       - item.stdout_lines[-1] == '-A VPS-INPUT -j DROP'
-    fail_msg: La chaîne VPS-INPUT n'est pas active.
+    fail_msg: The VPS-INPUT chain is not active.
   loop: "{{ firewall_active_rules.results }}"
   loop_control:
     label: "{{ item.item }}"

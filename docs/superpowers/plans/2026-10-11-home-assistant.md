@@ -1,26 +1,25 @@
-# Home Assistant sur le VPS
+# Home Assistant on the VPS
 
-Objectif autorisé : instance Container sur `vps-d9d9aca9.vps.ovh.net`, domaine exact
-`home-assistant.nyhasinavalona.com`, dépôt personnel privé et guide du hub.
+Authorized goal: Container instance on `vps-d9d9aca9.vps.ovh.net`, exact domain
+`home-assistant.nyhasinavalona.com`, private personal repository and hub guide.
 
-## Contraintes
+## Constraints
 
-- Conserver les instances my-media, DNS voisins, trois sous-modules et données existantes.
-- Configuration/runtime/secrets/sauvegardes distincts du Git applicatif.
-- Aucun onboarding administrateur public : tunnel SSH initial, garde fermée en cas d'erreur.
-- Aucune intégration Tapo/SmartThings annoncée connectée sans preuve ni abonnement souscrit.
-- Déploiement par `ny.vps.app` ; image officielle par digest, réseau isolé, loopback seulement.
+- Keep existing my-media instances, neighbor DNS, three submodules, and data.
+- No public administrator onboarding: initial SSH tunnel, guard closed on error.
+- No Tapo/SmartThings integration claimed connected without proof or subscribed plan.
+- Deploy via `ny.vps.app`; official image by digest, isolated network, loopback only.
 
-## Exécution
+## Execution
 
-- [ ] Socle : tests rouges puis autorisations exactes de noms par instance, arrêt propre,
-  garde d'onboarding pilotée par l'administrateur et refresh ingress sous verrou.
-  Vérifier les refus hors périmètre, l'état fermé en cas d'erreur, la protection persistante
-  de la création d'administrateur, les limites et `make check`.
-- [ ] Application : créer le dépôt autonome, déploiement Ansible, image épinglée,
-  config persistante, tunnel initial et sauvegarde/restauration ciblées.
-  Déployer après revue du socle ; contrôler TLS, 403 public, onboarding privé,
-  limites, redémarrage et persistance, puis état my-media.
-- [ ] Documentation : guide appareils avec sources officielles, guide agents et
-  référence documentaire dans le hub. Publier le dépôt privé puis vérifier sa visibilité
-  et sa révision. Rapporter les dernières actions humaines sans inventer de compte.
+- [ ] Platform: red tests then exact per-instance name permissions, graceful stop,
+  administrator-driven onboarding guard, and ingress refresh under lock.
+  Verify out-of-scope refusals, closed state on error, persistent protection of
+  administrator creation, limits, and `make check`.
+- [ ] Application: create standalone repository, Ansible deployment, pinned image,
+  persistent config, initial tunnel, and targeted backup/restore.
+  Deploy after platform review; check TLS, public 403, private onboarding,
+  limits, restart and persistence, then my-media state.
+- [ ] Hub: private repository, hub documentation reference.
+  Publish the private repository then verify visibility
+  and revision. Report latest human actions without inventing an account.

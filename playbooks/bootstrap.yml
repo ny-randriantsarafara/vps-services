@@ -12,7 +12,7 @@
         that:
           - ansible_facts['distribution'] == 'Debian'
           - ansible_facts['distribution_major_version'] == '13'
-        fail_msg: Le socle est validé uniquement sur Debian 13.
+        fail_msg: The platform is validated on Debian 13 only.
 
     - name: Create the administrator with its keys and sudo
       ansible.builtin.include_role:

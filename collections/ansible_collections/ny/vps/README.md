@@ -1,16 +1,16 @@
 # Collection `ny.vps`
 
-Socle d'un VPS unique et contrat de déploiement des applications.
+Single-VPS platform and application deployment contract.
 
-| Élément | Rôle |
+| Item | Role |
 | --- | --- |
-| `ny.vps.host` | Debian 13, administrateur non-root, mises à jour de sécurité, journal borné |
-| `ny.vps.ssh` | Durcissement SSH validé par `sshd -t` |
-| `ny.vps.firewall` | Règles IPv4/IPv6 `INPUT` et `DOCKER-USER`, restaurées au démarrage |
-| `ny.vps.docker` | Docker Engine et Compose depuis le dépôt APT signé, versions épinglées |
-| `ny.vps.ingress` | Caddy sur l'hôte, administration par socket Unix |
-| `ny.vps.controller` | Commande `vpsctl`, politique d'admission, comptes de déploiement |
-| `ny.vps.app` | Rôle des dépôts applicatifs : rendu Compose et requête au contrôleur |
-| `ny.vps.deploy_instance` | Module qui transmet une requête du protocole version 1 |
+| `ny.vps.host` | Debian 13, non-root administrator, security updates, bounded journal |
+| `ny.vps.ssh` | SSH hardening validated with `sshd -t` |
+| `ny.vps.firewall` | IPv4/IPv6 `INPUT` and `DOCKER-USER` rules, restored at boot |
+| `ny.vps.docker` | Docker Engine and Compose from the signed APT repo, pinned versions |
+| `ny.vps.ingress` | Caddy on the host, administration via Unix socket |
+| `ny.vps.controller` | `vpsctl` command, admission policy, deploy accounts |
+| `ny.vps.app` | Role for application repos: render Compose and call the controller |
+| `ny.vps.deploy_instance` | Module that sends a protocol version 1 request |
 
-Le contrat applicatif est décrit dans `docs/APP-CONTRACT.md` du dépôt `vps-services`.
+The application contract is described in `docs/APP-CONTRACT.md` of the `vps-services` repository.

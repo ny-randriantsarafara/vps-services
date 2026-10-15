@@ -1,37 +1,37 @@
 ---
-# Connexion : empreinte vérifiée hors bande, jamais acceptée à l'aveugle (docs/OPERATIONS.md).
+# Connection: host key verified out of band, never accepted blindly (docs/OPERATIONS.md).
 ansible_user: "{{ vps_admin_user }}"
 ansible_ssh_common_args: >-
   -o StrictHostKeyChecking=yes
   -o UserKnownHostsFile={{ inventory_dir }}/known_hosts
 
-# Accès initial fourni par OVH, utilisé uniquement par playbooks/bootstrap.yml.
+# Initial access from OVH, used only by playbooks/bootstrap.yml.
 vps_initial_user: debian
 vps_revoke_initial_user_key: true
 
-# Administrateur non-root. Les clés publiques ne sont pas des secrets.
+# Non-root administrator. Public keys are not secrets.
 vps_admin_user: vps-admin
 vps_admin_public_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGc8Nt0ptrQRnBuH+8a0sVqQoap/gRyaIGrdJ4EkHMVX vps-admin@vps-d9d9aca9"
 
-# Domaine des instances : wildcard DNS *.apps.nyhasinavalona.com vers le VPS (docs/OPERATIONS.md).
+# Instance domain: wildcard DNS *.apps.nyhasinavalona.com to the VPS (docs/OPERATIONS.md).
 vps_domain: apps.nyhasinavalona.com
 
-# Plafond global, toutes applications confondues.
+# Global cap, all applications combined.
 vps_preview_limit: 1
 
-# Budgets d'admission (vCPU / MiB), toutes instances d'un environnement réunies, puis une preview.
-# Le CPU n'est pas réservé : 4 vCPU sur l'hôte. Directus démarre en plus de 120 s sous 0,2 vCPU
-# (mesuré le 11/10/2026), d'où 1 vCPU par preview et pour le staging de my-media.
-# Portfolio (13/10/2026) : prod 0,8 vCPU / 1 088 MiB, staging 0,85 vCPU / 1 024 MiB ; une seule
-# preview pour garder la mémoire déclarée dans les 8 GiB de l'hôte. Ce sont des plafonds.
+# Admission budgets (vCPU / MiB), all instances of an environment combined, then one preview.
+# CPU is not reserved: 4 vCPU on the host. Directus takes more than 120 s to start under 0.2 vCPU
+# (measured 11/10/2026), hence 1 vCPU per preview and for my-media staging.
+# Portfolio (13/10/2026): prod 0.8 vCPU / 1,088 MiB, staging 0.85 vCPU / 1,024 MiB; a single
+# preview to keep declared memory within the host 8 GiB. These are caps.
 vps_budgets:
   prod: {cpus: 3.1, memory_mib: 5120}
   staging: {cpus: 2, memory_mib: 2048}
   preview: {cpus: 1, memory_mib: 1024}
 vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
 
-# Comptes de déploiement des applications (playbooks/register-app.yml), par exemple :
+# Application deploy accounts (playbooks/register-app.yml), for example:
 #   exemple-nonprod:
 #     application: exemple
 #     environments: [staging, preview]
@@ -63,11 +63,11 @@ vps_deploy_accounts:
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBfIcsmTeiOcXooYOPwLFY6WRiTyzEK91x4ddtSkcxNB github-actions@portfolio-prod"
 
-# Alias administrateur exact ; les applications ne peuvent pas réclamer un autre nom.
-# Le site public du portfolio reste sur GitHub Pages : seuls son API et son CMS sont sur le VPS.
+# Exact administrator alias; applications cannot claim another name.
+# The portfolio public site stays on GitHub Pages: only its API and CMS are on the VPS.
 vps_instance_hostnames:
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
   portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
-# Fermé tant que le propriétaire n'a pas créé son compte par tunnel SSH.
+# Closed until the owner has created their account via SSH tunnel.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}

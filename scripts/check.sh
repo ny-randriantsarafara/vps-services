@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$PWD/.venv/bin:$PATH"
-test -x .venv/bin/python || { echo "Exécuter make setup avant les checks." >&2; exit 1; }
+test -x .venv/bin/python || { echo "Run make setup before checks." >&2; exit 1; }
 ruff check collections tests
 ruff format --check collections tests
 python -m unittest discover -s tests -v

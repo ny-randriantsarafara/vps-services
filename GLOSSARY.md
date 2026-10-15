@@ -1,41 +1,41 @@
 # VPS Services
 
-Vocabulaire de la plateforme qui héberge des applications sur un VPS unique.
+Vocabulary for the platform that hosts applications on a single VPS.
 
-## Langage
+## Language
 
-**Socle VPS** :
-Ensemble des capacités communes du serveur dont les applications dépendent pour être hébergées.
-_Éviter_ : stack applicative globale.
+**VPS platform**:
+Shared server capabilities that applications depend on to be hosted.
+_Avoid_: global application stack.
 
-**Application** :
-Produit identifié par son dépôt, qui possède ses propres besoins et son propre cycle de livraison.
-_Éviter_ : service, lorsque l'on désigne le produit entier.
+**Application**:
+Product identified by its repository, with its own needs and its own delivery cycle.
+_Avoid_: service, when you mean the whole product.
 
-**Service applicatif** :
-Composant d'une application, par exemple son interface web, son API ou sa base de données.
+**Application service**:
+Component of an application, for example its web UI, API, or database.
 
-**Instance** :
-Occurrence isolée d'une application dans un environnement donné.
-_Éviter_ : application, lorsque l'on désigne seulement son occurrence en staging ou en preview.
+**Instance**:
+Isolated occurrence of an application in a given environment.
+_Avoid_: application, when you mean only its occurrence in staging or preview.
 
-**Production** :
-Environnement durable qui fournit le produit à ses utilisateurs.
+**Production**:
+Long-lived environment that serves the product to its users.
 
-**Staging** :
-Environnement durable de validation d'une application, distinct de sa production et de ses previews.
-_Éviter_ : preview permanente.
+**Staging**:
+Long-lived validation environment for an application, separate from its production and its previews.
+_Avoid_: permanent preview.
 
-**Preview** :
-Environnement temporaire propre à une pull request d'une application.
-_Éviter_ : staging de la PR.
+**Preview**:
+Temporary environment tied to one pull request of an application.
+_Avoid_: PR staging.
 
-**Place de preview** :
-Unité du plafond commun qui limite le nombre de previews présentes sur le VPS, toutes applications confondues.
-_Éviter_ : quota par dépôt.
+**Preview slot**:
+Unit of the shared cap that limits how many previews are on the VPS at once, across all applications.
+_Avoid_: quota per repository.
 
-**Admission** :
-Décision d'accepter une création ou une modification d'instance au regard des capacités et des règles communes du VPS.
+**Admission**:
+Decision to accept creating or changing an instance given the VPS shared capacity and rules.
 
-**Données de test** :
-Données destinées à la validation d'une instance, distinctes des données de production et des autres instances.
+**Test data**:
+Data meant to validate an instance, separate from production data and from other instances.

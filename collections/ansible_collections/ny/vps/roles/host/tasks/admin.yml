@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - host_admin_public_keys | length > 0
-    fail_msg: Renseigner vps_admin_public_keys dans l'inventaire avant de configurer l'accès.
+    fail_msg: Set vps_admin_public_keys in the inventory before configuring access.
 
 - name: Create the administrator account
   ansible.builtin.user:

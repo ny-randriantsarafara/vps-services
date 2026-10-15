@@ -5,7 +5,7 @@ version: 1.3.1
 readme: README.md
 authors:
   - Nyhasina Randriantsarafara
-description: Socle d'un VPS unique et contrat de déploiement des applications, protocole version 1.
+description: Single-VPS platform and application deployment contract, protocol version 1.
 repository: https://github.com/ny-randriantsarafara/vps-services
 tags:
   - infrastructure

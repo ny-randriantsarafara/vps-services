@@ -1,21 +1,21 @@
-# Routes multiples, domaine `apps` et comptes `my-media`
+# Multiple routes, `apps` domain, and `my-media` accounts
 
-Date : 11 octobre 2026. Statut : approuvé ; demandé par la CI/CD de `my-media` (spec `docs/superpowers/specs/2026-10-11-cicd-design.md` du dépôt `my-media`).
+Date: 11 October 2026. Status: approved; requested by `my-media` CI/CD (spec `docs/superpowers/specs/2026-10-11-cicd-design.md` in the `my-media` repository).
 
-## Besoin
+## Need
 
-The Media publie deux noms par instance : le site et Directus. L'aperçu des brouillons lit sur le site le cookie de session posé par Directus. Ce cookie doit donc couvrir les deux noms, sans couvrir les autres instances : une preview exécute du code non relu et ne doit jamais recevoir le cookie de la production.
+The Media publishes two names per instance: the site and Directus. Draft preview reads the session cookie set by Directus from the site. That cookie must cover both names without covering other instances: a preview runs unreviewed code and must never receive the production cookie.
 
-## Décision
+## Decision
 
-- Une instance publie son nom principal `<label>.<domaine>` et des noms secondaires `<préfixe>.<label>.<domaine>`, où `<préfixe>` est un label `[a-z][a-z0-9]{0,31}`. Chaque nom au plus une fois, 16 routes au plus.
-- Deux instances ont des labels distincts : leurs ensembles de noms sont disjoints, par construction, sans liste de noms réservés.
-- Un cookie `Domain=<label>.<domaine>` couvre le site et ses noms secondaires, mais aucune autre instance.
-- Toutes les routes de l'instance sont sondées en loopback avant publication. `http_status` vaut `ready` seulement si toutes répondent publiquement.
-- Domaine : `apps.nyhasinavalona.com`. Wildcard Cloudflare `*.apps` en A/AAAA, sans proxy : il couvre plusieurs niveaux, et Caddy obtient un certificat par nom.
-- Comptes : `my-media-nonprod` (`staging`, `preview`) et `my-media-prod` (`prod`), une clé ed25519 dédiée chacun. Les clés privées sont dans les environnements GitHub de `my-media`.
+- An instance publishes its primary name `<label>.<domain>` and secondary names `<prefix>.<label>.<domain>`, where `<prefix>` is a label `[a-z][a-z0-9]{0,31}`. Each name at most once, at most 16 routes.
+- Two instances have distinct labels: their name sets are disjoint by construction, with no reserved-name list.
+- A cookie `Domain=<label>.<domain>` covers the site and its secondary names, but no other instance.
+- All instance routes are probed on loopback before publication. `http_status` is `ready` only if all respond publicly.
+- Domain: `apps.nyhasinavalona.com`. Cloudflare wildcard `*.apps` as A/AAAA, no proxy: it covers multiple levels, and Caddy obtains a certificate per name.
+- Accounts: `my-media-nonprod` (`staging`, `preview`) and `my-media-prod` (`prod`), each with a dedicated ed25519 key. Private keys are in `my-media` GitHub environments.
 
-## Écartés
+## Rejected
 
-- `<label>-<suffixe>` (`my-media-pr-42-cms`). Le seul parent commun du site et du CMS serait le domaine entier : le cookie de la production fuirait vers les previews. Il faudrait aussi réserver des suffixes dans les noms d'application pour éviter les collisions.
-- Une instance par service : le site serait séparé de sa base, et une preview consommerait deux places.
+- `<label>-<suffix>` (`my-media-pr-42-cms`). The only common parent of site and CMS would be the whole domain: the production cookie would leak to previews. Suffixes would also need to be reserved in application names to avoid collisions.
+- One instance per service: the site would be separate from its database, and a preview would use two slots.
