@@ -152,15 +152,84 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(directory.is_dir())
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
             self.assertEqual(directory.stat().st_uid, os.getuid())
+            log = directory / "vps-http.json"
+            self.assertTrue(log.is_file())
+            self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(log.stat().st_uid, os.getuid())
             self.loads.append(config)
 
         self.runtime.caddy_loader = load
+
+        def validate(argv, **kwargs):
+            if argv[:2] == ["/usr/bin/caddy", "validate"]:
+                # Real validation opens log outputs as root on the VPS. The
+                # service-owned file must already exist before that boundary.
+                log = directory / "vps-http.json"
+                self.assertTrue(log.is_file())
+                self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(log.stat().st_uid, os.getuid())
+            return self.docker(argv, **kwargs)
+
+        self.runtime.runner = validate
         with (
             patch.object(runtime_module, "REQUEST_LOG_DIRECTORY", directory, create=True),
             patch.object(runtime_module.pwd, "getpwnam", return_value=pwd.getpwuid(os.getuid())),
         ):
             self.runtime.refresh_ingress([route])
         self.assertTrue(self.loads)
+
+    def test_request_log_permission_repair_preserves_existing_records(self):
+        import pwd
+        from unittest.mock import patch
+
+        import vps_platform.runtime as runtime_module
+
+        directory = self.root / "private-logs"
+        directory.mkdir()
+        log = directory / "vps-http.json"
+        log.write_text("existing sanitized record\n")
+        log.chmod(0o644)
+        with (
+            patch.object(runtime_module, "REQUEST_LOG_DIRECTORY", directory),
+            patch.object(runtime_module.pwd, "getpwnam", return_value=pwd.getpwuid(os.getuid())),
+        ):
+            self.runtime._prepare_request_logs({"logging": {}})
+        self.assertEqual(log.read_text(), "existing sanitized record\n")
+        self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(log.stat().st_uid, os.getuid())
+
+    def test_request_log_rejects_links_and_special_files_without_touching_the_target(self):
+        import pwd
+        from unittest.mock import patch
+
+        import vps_platform.runtime as runtime_module
+
+        for kind in ("symlink", "hardlink", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                directory = self.root / ("logs-" + kind)
+                directory.mkdir()
+                target = self.root / ("sentinel-" + kind)
+                target.write_text("keep private data\n")
+                target.chmod(0o640)
+                log = directory / "vps-http.json"
+                if kind == "symlink":
+                    log.symlink_to(target)
+                elif kind == "hardlink":
+                    os.link(target, log)
+                elif kind == "directory":
+                    log.mkdir()
+                else:
+                    os.mkfifo(log)
+                with (
+                    patch.object(runtime_module, "REQUEST_LOG_DIRECTORY", directory),
+                    patch.object(
+                        runtime_module.pwd, "getpwnam", return_value=pwd.getpwuid(os.getuid())
+                    ),
+                    self.assertRaises(RuntimeFailure),
+                ):
+                    self.runtime._prepare_request_logs({"logging": {}})
+                self.assertEqual(target.read_text(), "keep private data\n")
+                self.assertEqual(target.stat().st_mode & 0o777, 0o640)
 
     def test_retirement_withdraws_routes_and_removes_compute_but_preserves_named_volumes(self):
         self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)
