@@ -76,7 +76,28 @@ class BoundaryRuntime:
     def apply(self, instance, compose_path, routes, storage_budget_gib):
         self.storage_budgets.append(storage_budget_gib)
         data = self.inventory()
-        data[instance] = {"owned": True, "resources": ["container", "network", "volume"]}
+        from vps_platform.compose import INIT_PROFILE, memory_mib
+
+        compose = json.loads(compose_path.read_text())
+        data[instance] = {
+            "owned": True,
+            "resources": [
+                {
+                    "kind": "container",
+                    "id": name,
+                    "object": {
+                        "Config": {"Labels": {"com.docker.compose.service": name}},
+                        "HostConfig": {
+                            "Memory": memory_mib(service["mem_limit"]) * 1048576,
+                            "NanoCpus": service["cpus"] * 1e9,
+                        },
+                        "State": {"Status": "running"},
+                    },
+                }
+                for name, service in compose["services"].items()
+                if INIT_PROFILE not in service.get("profiles", [])
+            ],
+        }
         self.path.write_text(json.dumps(data))
         if self.crash_apply:
             raise SystemExit("controller process interrupted")
@@ -89,6 +110,13 @@ class BoundaryRuntime:
             raise RuntimeError("daemon unavailable")
         data = self.inventory()
         data.pop(instance, None)
+        self.path.write_text(json.dumps(data))
+
+    def retire_staging(self, instance, compose_path, routes):
+        if self.fail_destroy:
+            raise RuntimeError("daemon unavailable")
+        data = self.inventory()
+        data[instance]["resources"] = [{"kind": "volume", "id": "retained-data"}]
         self.path.write_text(json.dumps(data))
 
     def logs(self, instance, tail):

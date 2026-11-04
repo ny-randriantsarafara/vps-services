@@ -1,0 +1,10 @@
+---
+# Collector-only rollout: validates private inputs before any mutation; no platform packages.
+- name: Configure only optional personal cloud telemetry
+  hosts: vps
+  become: true
+  gather_facts: false
+  roles:
+    - role: ny.vps.observability
+      vars:
+        observability_enabled: "{{ vps_observability_enabled | default(false) }}"

@@ -1,0 +1,72 @@
+---
+# Prometheus/Mimir ruler format; import into the personal Cloud metrics tenant.
+groups:
+  - name: personal-vps
+    interval: 1m
+    rules:
+      - alert: PersonalVpsTelemetryMissing
+        expr: absent_over_time(node_uname_info{host="personal-vps"}[10m]) == 1
+        for: 2m
+        labels: {severity: critical, platform: personal-vps}
+        annotations:
+          summary: Personal VPS telemetry has stopped
+          description: Check the VPS and Alloy privately; no automatic application restart.
+      - alert: PersonalVpsProductionHttpUnhealthy
+        expr: probe_success{host="personal-vps",environment="prod"} == 0
+        for: 5m
+        labels: {severity: critical, platform: personal-vps}
+        annotations:
+          summary: A production HTTP probe is failing
+      - alert: PersonalVpsActualHttp5xx
+        expr: >-
+          (time() - max by (application, environment) (vps_http_last_error_timestamp_seconds{host="personal-vps",environment="prod"}) >= 0)
+          and (time() - max by (application, environment) (vps_http_last_error_timestamp_seconds{host="personal-vps",environment="prod"}) < 300)
+        labels: {severity: warning, platform: personal-vps}
+        annotations:
+          summary: Production requests returned 5xx responses
+      - alert: PersonalVpsMemoryPressure
+        expr: node_memory_MemAvailable_bytes{host="personal-vps"} < 536870912
+        for: 5m
+        labels: {severity: warning, platform: personal-vps}
+        annotations:
+          summary: Less than 512 MiB available RAM
+      - alert: PersonalVpsDiskPressure
+        expr: node_filesystem_avail_bytes{host="personal-vps",mountpoint="/",fstype!="tmpfs"} < 10737418240
+        for: 5m
+        labels: {severity: critical, platform: personal-vps}
+        annotations:
+          summary: Root filesystem has less than 10 GiB free
+      - alert: PersonalVpsInodePressure
+        expr: node_filesystem_files_free{host="personal-vps",mountpoint="/"} / node_filesystem_files{host="personal-vps",mountpoint="/"} < 0.05
+        for: 5m
+        labels: {severity: warning, platform: personal-vps}
+        annotations:
+          summary: Root filesystem has less than 5 percent free inodes
+      - alert: PersonalVpsCpuPressure
+        expr: 1 - avg(rate(node_cpu_seconds_total{host="personal-vps",mode="idle"}[5m])) > 0.9
+        for: 15m
+        labels: {severity: warning, platform: personal-vps}
+        annotations:
+          summary: Host CPU usage exceeds 90 percent
+      - alert: PersonalVpsProductionRegistryUnhealthy
+        expr: vps_platform_instances{host="personal-vps",environment="prod",status!="ready"} > 0
+        for: 5m
+        labels: {severity: critical, platform: personal-vps}
+        annotations:
+          summary: A production registry entry is not ready
+      - alert: PersonalVpsRegistryMetricsMissing
+        expr: >-
+          vps_platform_collect_success{host="personal-vps"} == 0
+          or absent_over_time(vps_platform_collect_success{host="personal-vps"}[5m]) == 1
+          or (time() - vps_platform_last_collection_timestamp_seconds{host="personal-vps"} > 180)
+          or absent_over_time(vps_platform_last_collection_timestamp_seconds{host="personal-vps"}[5m]) == 1
+        for: 5m
+        labels: {severity: warning, platform: personal-vps}
+        annotations:
+          summary: Platform state metrics cannot be read
+      - alert: PersonalVpsRebootRequired
+        expr: node_reboot_required{host="personal-vps"} == 1
+        for: 1h
+        labels: {severity: info, platform: personal-vps}
+        annotations:
+          summary: A reviewed VPS reboot is required

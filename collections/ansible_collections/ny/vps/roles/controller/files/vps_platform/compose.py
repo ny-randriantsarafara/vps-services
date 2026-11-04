@@ -316,6 +316,7 @@ def runtime_service(name, service, instance, volumes, routes):
     return {
         **submitted,
         "memswap_limit": service["mem_limit"],
+        "cpu_shares": 2048 if instance.endswith("-prod") else 512,
         "labels": labels(instance),
         "cap_drop": ["ALL"],
         "security_opt": ["no-new-privileges:true"],

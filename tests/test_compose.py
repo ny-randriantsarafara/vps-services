@@ -20,6 +20,19 @@ class ComposeTests(unittest.TestCase):
     def render(self):
         return normalize(self.payload, self.policy, "alpha-pr-1", {})
 
+    def test_cpu_shares_are_owned_by_server_and_production_has_priority(self):
+        for instance, environment, shares in [
+            ("alpha-prod", "prod", 2048),
+            ("alpha-pr-1", "preview", 512),
+        ]:
+            payload = request()
+            payload["environment"] = environment
+            compose, _, _ = normalize(payload, self.policy, instance, {})
+            self.assertEqual(compose["services"]["web"].get("cpu_shares"), shares)
+        self.payload["compose"]["services"]["web"]["cpu_shares"] = 262144
+        with self.assertRaises(Refused):
+            self.render()
+
     def test_unsafe_service_options_are_rejected(self):
         for key, value in {
             "build": ".",

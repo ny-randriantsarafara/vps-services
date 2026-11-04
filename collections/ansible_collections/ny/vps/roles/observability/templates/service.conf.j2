@@ -1,0 +1,31 @@
+[Unit]
+# No Requires/PartOf/BindsTo relationship with production services.
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+# cAdvisor needs host cgroups/runtime access; the collector is a trusted host service.
+User=root
+Group=root
+EnvironmentFile=/etc/alloy/cloud.env
+Environment=GOMEMLIMIT=192MiB
+ExecStart=
+ExecStart=/usr/bin/alloy run --server.http.listen-addr=127.0.0.1:12345 --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+ExecStartPre=/usr/bin/alloy validate /etc/alloy/config.alloy
+Restart=on-failure
+RestartSec=30
+MemoryHigh=256M
+MemoryMax=384M
+MemorySwapMax=0
+CPUQuota=25%
+CPUWeight=64
+TasksMax=128
+# Hard 128 MiB bound, memory charged to this service. Best-effort telemetry, no disk growth.
+TemporaryFileSystem=/var/lib/alloy:rw,size=128M,mode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=20

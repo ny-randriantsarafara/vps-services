@@ -1,0 +1,168 @@
+---
+rule_files:
+  - ../../observability/alerts/personal-vps.yml
+evaluation_interval: 1m
+tests:
+  - name: first isolated 503 burst is visible despite constant first counter and resolves
+    interval: 1m
+    input_series:
+      - series: vps_http_last_error_timestamp_seconds{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: _ 60+0x8
+      - series: vps_http_requests_total{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: _ 3+0x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - &id001
+            exp_labels:
+              application: portfolio
+              environment: prod
+              severity: warning
+              platform: personal-vps
+            exp_annotations:
+              summary: Production requests returned 5xx responses
+      - eval_time: 4m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - *id001
+      - eval_time: 6m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+  - name: subsequent server error extends recency and then resolves
+    interval: 1m
+    input_series:
+      - series: vps_http_last_error_timestamp_seconds{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 0+0x3 240+0x8
+      - series: vps_http_requests_total{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 3+0x3 4+0x8
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - *id001
+      - eval_time: 8m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - *id001
+      - eval_time: 9m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+  - name: idle series recreated on an isolated new error
+    interval: 1m
+    input_series:
+      - series: vps_http_last_error_timestamp_seconds{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 0 stale _x1440 86520+0x8
+      - series: vps_http_requests_total{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 3 stale _x1440 2+0x8
+    alert_rule_test:
+      - eval_time: 24h2m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - *id001
+      - eval_time: 24h7m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+  - name: collector reset with a new isolated error is visible
+    interval: 1m
+    input_series:
+      - series: vps_http_last_error_timestamp_seconds{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 0 stale _x3 300+0x8
+      - series: vps_http_requests_total{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: 3 stale _x3 1+0x8
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts:
+          - *id001
+      - eval_time: 10m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+  - name: old server event ingested now must not masquerade as a new failure
+    interval: 1m
+    input_series:
+      - series: vps_http_last_error_timestamp_seconds{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: _x10 60+0x8
+      - series: vps_http_requests_total{host="personal-vps",application="portfolio",environment="prod",code="503"}
+        values: _x10 3+0x8
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+      - eval_time: 13m
+        alertname: PersonalVpsActualHttp5xx
+        exp_alerts: []
+  - name: bridge timestamp stalls despite healthy host scraping and success one, then recovers
+    interval: 1m
+    input_series:
+      - &id002
+        series: node_uname_info{host="personal-vps"}
+        values: 1+0x20
+      - &id003
+        series: vps_platform_collect_success{host="personal-vps"}
+        values: 1+0x20
+      - series: vps_platform_last_collection_timestamp_seconds{host="personal-vps"}
+        values: 0+0x9 600+60x10
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts:
+          - &id004
+            exp_labels:
+              host: personal-vps
+              severity: warning
+              platform: personal-vps
+            exp_annotations:
+              summary: Platform state metrics cannot be read
+      - eval_time: 10m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts: []
+  - name: bridge normally refreshes every minute
+    interval: 1m
+    input_series:
+      - *id002
+      - *id003
+      - series: vps_platform_last_collection_timestamp_seconds{host="personal-vps"}
+        values: 0+60x20
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts: []
+  - name: bridge explicit failed read remains detected
+    interval: 1m
+    input_series:
+      - *id002
+      - series: vps_platform_collect_success{host="personal-vps"}
+        values: 0+0x20
+      - series: vps_platform_last_collection_timestamp_seconds{host="personal-vps"}
+        values: 0+60x20
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts:
+          - *id004
+  - name: bridge missing series remains detected
+    interval: 1m
+    input_series:
+      - *id002
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts:
+          - *id004
+  - name: bridge freshness missing while legacy success file is scraped remains detected
+    interval: 1m
+    input_series:
+      - *id002
+      - *id003
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PersonalVpsRegistryMetricsMissing
+        exp_alerts:
+          - *id004

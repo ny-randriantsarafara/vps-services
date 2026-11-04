@@ -48,6 +48,8 @@ class DockerBoundary:
                 for key in args[2:]:
                     if not key.startswith("-"):
                         self.resources[kind].pop(key)
+        elif args[0] == "update":
+            self.resources["container"][args[-1]]["HostConfig"]["CpuShares"] = int(args[2])
         elif args[0] == "logs":
             output = "log of " + args[-1]
         elif args[0] == "compose" and "up" in args:
@@ -65,6 +67,7 @@ class DockerBoundary:
                 },
                 "HostConfig": {
                     "NanoCpus": 0 if self.bad_limit else 200000000,
+                    "CpuShares": service.get("cpu_shares", 0),
                     "Memory": 402653184,
                     "MemorySwap": 402653184,
                     "PidsLimit": 64,
@@ -127,6 +130,79 @@ class RuntimeTests(unittest.TestCase):
             public_probe=lambda route: True,
             disk_free_gib=lambda: 50,
         )
+
+    def test_controller_prepares_private_source_log_path_before_ingress_load_without_alloy(self):
+        import pwd
+        from unittest.mock import patch
+
+        import vps_platform.runtime as runtime_module
+
+        self.policy.data["domain"] = "apps.example.net"
+        directory = self.root / "private-logs"
+        route = {
+            "hostname": "alpha-pr-1.apps.example.net",
+            "service": "web",
+            "port": 3000,
+            "upstream": "127.0.0.1:20000",
+            "application": "alpha",
+            "environment": "preview",
+        }
+
+        def load(config):
+            self.assertTrue(directory.is_dir())
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(directory.stat().st_uid, os.getuid())
+            self.loads.append(config)
+
+        self.runtime.caddy_loader = load
+        with (
+            patch.object(runtime_module, "REQUEST_LOG_DIRECTORY", directory, create=True),
+            patch.object(runtime_module.pwd, "getpwnam", return_value=pwd.getpwuid(os.getuid())),
+        ):
+            self.runtime.refresh_ingress([route])
+        self.assertTrue(self.loads)
+
+    def test_retirement_withdraws_routes_and_removes_compute_but_preserves_named_volumes(self):
+        self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)
+        # Give the real boundary a staging-owned runtime inventory.
+        for resources in self.docker.resources.values():
+            for obj in resources.values():
+                obj["Name"] = obj["Name"].replace("alpha-pr-1", "alpha-staging")
+                labels = obj.get("Config", {}).get("Labels", obj.get("Labels", {}))
+                labels["vps.platform.instance"] = "alpha-staging"
+                if "com.docker.compose.project" in labels:
+                    labels["com.docker.compose.project"] = "vps-alpha-staging"
+        volumes = dict(self.docker.resources["volume"])
+        self.policy.data["domain"] = "apps.example.net"
+        self.runtime.retire_staging("alpha-staging", self.path, [])
+        self.assertEqual(self.docker.resources["volume"], volumes)
+        self.assertEqual(self.docker.resources["container"], {})
+        self.assertEqual(self.docker.resources["network"], {})
+        self.assertTrue(self.loads)
+        for target in ("alpha-prod", "alpha-pr-1", "../alpha-staging"):
+            with self.subTest(target=target), self.assertRaises(RuntimeFailure):
+                self.runtime.retire_staging(target, self.path, [])
+
+    def test_new_cpu_shares_are_verified_and_legacy_configs_without_shares_still_work(self):
+        self.docker.host_overrides = {"CpuShares": 2048}
+        with self.assertRaises(RuntimeFailure):
+            self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)
+        self.compose["services"]["web"].pop("cpu_shares", None)
+        atomic_json(self.path, self.compose)
+        self.assertEqual(
+            self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)["local_health"],
+            "ready",
+        )
+
+    def test_cpu_weight_refresh_updates_owned_running_containers_without_restart(self):
+        self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)
+        self.docker.resources["container"]["container-web"]["HostConfig"]["CpuShares"] = 0
+        self.assertTrue(self.runtime.refresh_cpu_weights())
+        self.assertEqual(
+            self.docker.resources["container"]["container-web"]["HostConfig"]["CpuShares"], 512
+        )
+        self.assertFalse(self.runtime.refresh_cpu_weights())
+        self.assertFalse(any("restart" in command for command in self.docker.commands))
 
     def test_real_runtime_lifecycle_uses_effective_limits_and_targeted_deletion(self):
         result = self.runtime.apply("alpha-pr-1", self.path, [], STORAGE_BUDGET_GIB)

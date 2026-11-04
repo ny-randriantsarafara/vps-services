@@ -1,0 +1,17 @@
+---
+observability_enabled: false
+# Official Grafana APT package, verified 2026-11-04; upgrade deliberately.
+observability_alloy_version: "1.21.3-1"
+observability_host_label: personal-vps
+# Credentials are looked up only when enabled; never put them in inventory.
+observability_credentials:
+  GRAFANA_CLOUD_METRICS_URL: "{{ lookup('env', 'GRAFANA_CLOUD_METRICS_URL') }}"
+  GRAFANA_CLOUD_METRICS_USERNAME: "{{ lookup('env', 'GRAFANA_CLOUD_METRICS_USERNAME') }}"
+  GRAFANA_CLOUD_LOGS_URL: "{{ lookup('env', 'GRAFANA_CLOUD_LOGS_URL') }}"
+  GRAFANA_CLOUD_LOGS_USERNAME: "{{ lookup('env', 'GRAFANA_CLOUD_LOGS_USERNAME') }}"
+  GRAFANA_CLOUD_TOKEN: "{{ lookup('env', 'GRAFANA_CLOUD_TOKEN') }}"
+observability_http_targets:
+  - {name: my-media, address: "https://my-media.apps.nyhasinavalona.com", application: my-media}
+  - {name: portfolio-api, address: "https://api.nyhasinavalona.com", application: portfolio}
+  - {name: portfolio-cms, address: "https://cms.nyhasinavalona.com", application: portfolio}
+  - {name: home-assistant, address: "https://home-assistant.nyhasinavalona.com", application: home-assistant}

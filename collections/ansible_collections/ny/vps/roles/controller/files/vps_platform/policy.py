@@ -32,6 +32,7 @@ DEFAULTS = {
     "port_start": 20000,
     "port_end": 29999,
     "minimum_free_memory_mib": 512,
+    "maximum_total_memory_mib": 6144,
     "minimum_free_disk_gib": 10,
     "disk_warning_gib": 15,
     "image_growth_reserve_gib": 2,
@@ -108,7 +109,11 @@ class Policy:
                 raise Refused("invalid host budget")
         if set(self.data["budgets"]) != {"prod", "staging", "preview"} or not all(
             positive_number(self.data[key])
-            for key in ("minimum_free_disk_gib", "minimum_free_memory_mib")
+            for key in (
+                "minimum_free_disk_gib",
+                "minimum_free_memory_mib",
+                "maximum_total_memory_mib",
+            )
         ):
             raise Refused("invalid host budget")
 

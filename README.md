@@ -8,9 +8,11 @@ Vocabulary (application, instance, preview, preview slot, admission) is defined 
 
 ## Platform rules
 
-- At most two previews on the VPS, all applications combined; a third is refused and none is evicted.
-- Aggregate budgets (inventory, `vps_budgets`): production 1.5 vCPU / 3 GiB, staging 1 vCPU / 1 GiB, previews 2 vCPU / 2 GiB, at most one preview at 1 vCPU / 1 GiB.
-- A preview expires 72 hours after its last successful delivery or last renewal; prod and staging never expire.
+- At most one preview on the VPS, all applications combined; another is refused and none is evicted.
+- Global admitted application memory: 6144 MiB, including initialization jobs and per-service transition reservations, including removed/renamed services and failed init remnants. Current production reservations total 5056 MiB; one preview at 1024 MiB fits without reducing production limits. Environment envelopes remain production 3.1 vCPU / 5120 MiB, legacy staging 2 vCPU / 2048 MiB, preview 1 vCPU / 1024 MiB.
+- A preview expires 72 hours after its last successful delivery or renewal. Production never expires. Administrator-only staging retirement retains named volumes and private Compose; current nonprod identities permit previews only.
+- Production CPU shares are 2048; preview/staging shares are 512. Memory, CPU quotas and PID limits remain bounded.
+- Optional bounded Alloy sends metrics and filtered logs to a personal Grafana Cloud tenant. It is disabled by default and its service is independent of application services. No daily/weekly backup jobs are added; the existing OVH backup remains.
 - Each instance has its own network, volumes, secrets, and data. Only Caddy listens on 80/443; applications publish on `127.0.0.1` only.
 - Deploy accounts have neither the `docker` group nor general sudo: only `sudo -n /usr/local/sbin/vpsctl request`.
 - Deployments start from application repositories (workstation or application CI; see [CI/CD](docs/CICD.md)). This repository’s CI validates; it does not deploy.
@@ -19,9 +21,9 @@ Vocabulary (application, instance, preview, preview slot, admission) is defined 
 
 ```text
 inventories/production/   VPS, administrator, deploy accounts (no secrets)
-playbooks/                bootstrap.yml, platform.yml, register-app.yml
+playbooks/                bootstrap.yml, platform.yml, register-app.yml, observability.yml
 collections/ansible_collections/ny/vps/
-  roles/                  host, ssh, firewall, docker, ingress, controller, app
+  roles/                  host, ssh, firewall, docker, ingress, controller, observability, app
   roles/controller/files/vps_platform/   vpsctl controller (Python, standard library)
   plugins/modules/        deploy_instance: protocol version 1 request
 examples/application/     fictitious “exemple” application and its deployment
@@ -36,12 +38,16 @@ make setup                          # .venv and pinned tools (hashes verified)
 make check                          # Ruff, tests, ansible-lint, syntax, collection build
 make test                           # unit tests only
 make integration                    # opt-in: local Docker, vpsitest-* resources only
+make observability-check            # official Alloy config and diagnostic redaction
+make http-metrics-check              # real Caddy requests -> private Alloy metrics
+make monitoring-rules-check          # official promtool alert firing/resolution scenarios
 make collection                     # build ny.vps into dist/
 
 make plan TARGET=vps-d9d9aca9       # platform.yml with --check --diff
 make bootstrap TARGET=vps-d9d9aca9  # administrator then SSH hardening
 make platform TARGET=vps-d9d9aca9   # platform, no application
 make register-app TARGET=vps-d9d9aca9
+make observability TARGET=vps-d9d9aca9 # collector only, private credentials required
 ```
 
 Commands that touch a server refuse to run unless `TARGET` equals an exact inventory host name.
@@ -52,6 +58,7 @@ Commands that touch a server refuse to run unless `TARGET` equals an exact inven
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | Components, admission, isolation, local state |
 | [Application contract](docs/APP-CONTRACT.md) | Protocol version 1 request, Compose subset, routes, statuses, `ny.vps.app` role |
+| [Observability](docs/OBSERVABILITY.md) | Optional Alloy, private inputs, dashboard and alert import |
 | [Operations](docs/OPERATIONS.md) | SSH host keys, bootstrap, OVH recovery, `vpsctl`, diagnostics |
 | [CI/CD](docs/CICD.md) | Validation in this repo, rules for application deployments |
 | [Migration](docs/MIGRATION.md) | Removal of the old Supabase stack and its workflows |

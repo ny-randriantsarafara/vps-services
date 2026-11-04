@@ -12,6 +12,7 @@
       vars:
         controller_admin_user: "{{ vps_admin_user }}"
         controller_domain: "{{ vps_domain }}"
+        controller_maximum_total_memory_mib: "{{ vps_maximum_total_memory_mib }}"
         controller_preview_limit: "{{ vps_preview_limit }}"
         controller_deploy_accounts: "{{ vps_deploy_accounts }}"
         controller_budgets: "{{ vps_budgets }}"
