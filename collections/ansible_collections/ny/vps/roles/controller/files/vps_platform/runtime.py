@@ -641,6 +641,28 @@ class Runtime:
         account = pwd.getpwnam("caddy")
         os.chown(path, account.pw_uid, account.pw_gid, follow_symlinks=False)
         os.chmod(path, 0o700, follow_symlinks=False)
+        # `caddy validate` opens log outputs as root before the service loads
+        # them. Prepare the file for the service without truncating records.
+        try:
+            fd = os.open(
+                path / "vps-http.json",
+                os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+            )
+        except OSError:
+            raise RuntimeFailure("request log file ownership is unsafe") from None
+        try:
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid not in (0, account.pw_uid)
+            ):
+                raise RuntimeFailure("request log file ownership is unsafe")
+            os.fchown(fd, account.pw_uid, account.pw_gid)
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
 
     def _publish(self, routes):
         if not self.policy["domain"] and not routes:
