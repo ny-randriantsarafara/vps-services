@@ -1,0 +1,128 @@
+---
+- name: Validate private cloud inputs before any installation or restart
+  ansible.builtin.assert:
+    that:
+      - >-
+        observability_credentials.keys() | sort ==
+        ['GRAFANA_CLOUD_LOGS_URL', 'GRAFANA_CLOUD_LOGS_USERNAME',
+        'GRAFANA_CLOUD_METRICS_URL', 'GRAFANA_CLOUD_METRICS_USERNAME', 'GRAFANA_CLOUD_TOKEN']
+      - observability_credentials.values() | select('match', '^[A-Za-z0-9_./:+=-]+$') | list | length == 5
+      - observability_credentials.GRAFANA_CLOUD_METRICS_URL is match('^https://[a-z0-9.-]+\.grafana\.net/api/prom/push$')
+      - observability_credentials.GRAFANA_CLOUD_LOGS_URL is match('^https://[a-z0-9.-]+\.grafana\.net/loki/api/v1/push$')
+      - observability_credentials.GRAFANA_CLOUD_METRICS_USERNAME is match('^[0-9]+$')
+      - observability_credentials.GRAFANA_CLOUD_LOGS_USERNAME is match('^[0-9]+$')
+      - observability_host_label is match('^[a-z0-9-]{1,63}$')
+    fail_msg: Optional telemetry credentials are missing or invalid; no collector changes were made.
+  no_log: true
+  tags: [observability_preflight]
+
+- name: Create the official repository keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the official Grafana signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg-full.key
+    dest: /etc/apt/keyrings/grafana.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure the signed official Grafana repository
+  ansible.builtin.deb822_repository:
+    name: grafana
+    types: [deb]
+    uris: https://apt.grafana.com
+    suites: [stable]
+    components: [main]
+    signed_by: /etc/apt/keyrings/grafana.asc
+
+- name: Install pinned Alloy without starting its default service
+  ansible.builtin.apt:
+    name: "alloy={{ observability_alloy_version }}"
+    state: present
+    update_cache: true
+    install_recommends: false
+    policy_rc_d: 101
+
+- name: Hold Alloy until reviewed maintenance
+  ansible.builtin.dpkg_selections:
+    name: alloy
+    selection: hold
+
+- name: Create collector configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: [/etc/alloy, /etc/systemd/system/alloy.service.d]
+
+- name: Install the read-only textfile metrics bridge
+  ansible.builtin.copy:
+    src: platform-metrics.py
+    dest: /usr/local/lib/vps-platform/platform-metrics.py
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install independent textfile metric units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [vps-platform-metrics.service, vps-platform-metrics.timer]
+
+- name: Enable the read-only metric timer
+  ansible.builtin.systemd_service:
+    name: vps-platform-metrics.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Store cloud credentials in a private host environment file
+  ansible.builtin.template:
+    src: cloud.env.j2
+    dest: /etc/alloy/cloud.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  diff: false
+  register: observability_environment
+
+- name: Install validated collector configuration
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: /etc/alloy/config.alloy
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /usr/bin/alloy validate %s
+  environment: "{{ observability_credentials }}"
+  no_log: true
+  diff: false
+  register: observability_configuration
+
+- name: Configure independent collector resource bounds
+  ansible.builtin.template:
+    src: service.conf.j2
+    dest: /etc/systemd/system/alloy.service.d/platform.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_service
+
+- name: Start or restart only Alloy after successful validation
+  ansible.builtin.systemd_service:
+    name: alloy
+    enabled: true
+    daemon_reload: true
+    state: "{{ 'restarted' if (observability_configuration.changed or observability_environment.changed or observability_service.changed) else 'started' }}"

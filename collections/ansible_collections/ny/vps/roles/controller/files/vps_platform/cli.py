@@ -28,6 +28,12 @@ def parser():
     commands.add_parser("request")
     commands.add_parser("status")
     commands.add_parser("cleanup")
+    weights = commands.add_parser("cpu-weights").add_subparsers(
+        dest="weights_command", required=True
+    )
+    weights.add_parser("refresh")
+    retire = commands.add_parser("retire-staging")
+    retire.add_argument("--instance", required=True)
     ingress = commands.add_parser("ingress").add_subparsers(dest="ingress_command", required=True)
     ingress.add_parser("refresh")
     previews = commands.add_parser("previews").add_subparsers(dest="preview_command", required=True)
@@ -132,6 +138,10 @@ def run_command(controller, arguments, payload, actor):
     if arguments.command == "request":
         return controller.request(payload, actor)
     controller.policy.authorize(actor, admin=True)
+    if arguments.command == "cpu-weights":
+        return controller.refresh_cpu_weights(actor)
+    if arguments.command == "retire-staging":
+        return controller.retire_staging(arguments.instance, actor)
     if arguments.command == "status":
         return controller.status(actor)
     if arguments.command == "ingress":

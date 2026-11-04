@@ -1,0 +1,18 @@
+[Unit]
+Description=Read-only platform registry and reboot-required metrics
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/lib/vps-platform/platform-metrics.py
+RuntimeDirectory=alloy-platform
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/run/alloy-platform
+MemoryMax=32M
+CPUQuota=5%
+TasksMax=16

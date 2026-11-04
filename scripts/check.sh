@@ -7,7 +7,7 @@ ruff check collections tests
 ruff format --check collections tests
 python -m unittest discover -s tests -v
 ansible-lint --offline
-for playbook in bootstrap platform register-app; do
+for playbook in bootstrap platform register-app observability; do
   ansible-playbook -i inventories/production/hosts.yml "playbooks/$playbook.yml" --syntax-check
 done
 ansible-playbook -i examples/application/deploy/ansible/inventory.yml \

@@ -1,4 +1,4 @@
-.PHONY: help setup check test integration collection plan bootstrap platform register-app
+.PHONY: help setup check test integration observability-check http-metrics-check monitoring-rules-check collection plan bootstrap platform register-app observability
 .DEFAULT_GOAL := help
 
 PYTHON ?= python3
@@ -30,6 +30,9 @@ test: ## Controller, Ansible module, and render tests
 integration: ## Opt-in test on local Docker (vpsitest-* resources only)
 	cd tests/integration && VPS_INTEGRATION=1 ../../$(VENV)/bin/python -m unittest -v test_local_docker
 
+observability-check: ## Opt-in official Alloy validation and synthetic log export check (local Docker)
+	VPS_ALLOY_INTEGRATION=1 $(VENV)/bin/python -m unittest discover -s tests/integration -p test_alloy.py -v
+
 collection: ## Build the ny.vps collection into dist/
 	$(VENV)/bin/ansible-galaxy collection build collections/ansible_collections/ny/vps --output-path dist --force
 
@@ -48,3 +51,13 @@ platform: ## Apply the platform on TARGET without starting an application
 register-app: ## Register deploy accounts from vps_deploy_accounts on TARGET
 	$(require_target)
 	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/register-app.yml --limit '$(TARGET)'
+
+observability: ## Configure only Alloy after credential preflight, no Docker/Caddy package roles
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/observability.yml --limit '$(TARGET)' -e vps_observability_enabled=true
+
+http-metrics-check: ## Real local Caddy traffic -> sanitized source -> Alloy status/latency metrics
+	VPS_HTTP_INTEGRATION=1 $(VENV)/bin/python -m unittest discover -s tests/integration -p test_http_metrics.py -v
+
+monitoring-rules-check: ## Official promtool alert behavior tests (local Docker, no network)
+	docker run --rm --network none --entrypoint=/bin/promtool -v "$(CURDIR)/observability:/repo/observability:ro" -v "$(CURDIR)/tests/observability:/repo/tests/observability:ro" -w /repo/tests/observability prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2 test rules alerts.test.yml

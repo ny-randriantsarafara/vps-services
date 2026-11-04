@@ -45,6 +45,14 @@
     group: root
     mode: "0755"
 
+- name: Create the private bounded HTTP telemetry directory
+  ansible.builtin.file:
+    path: /var/log/caddy
+    state: directory
+    owner: caddy
+    group: caddy
+    mode: "0700"
+
 - name: Write the initial configuration that vpsctl takes over
   ansible.builtin.template:
     src: vps-platform.json.j2

@@ -27,6 +27,7 @@ controller_policy:
     - root
   domain: "{{ controller_domain }}"
   preview_limit: "{{ controller_preview_limit | int }}"
+  maximum_total_memory_mib: "{{ controller_maximum_total_memory_mib | default(6144) }}"
   budgets: "{{ controller_budgets }}"
   preview_instance_budget: "{{ controller_preview_instance_budget }}"
   instance_hostnames: "{{ controller_instance_hostnames | default({}) }}"

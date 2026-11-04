@@ -1,0 +1,19 @@
+---
+- name: Render optional collector configuration with synthetic inputs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load collector defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/observability/defaults/main.yml"
+    - name: Render official Alloy configuration
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/observability/templates/config.alloy.j2"
+        dest: "{{ observability_output }}/config.alloy"
+        mode: "0600"
+    - name: Render bounded systemd service
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/observability/templates/service.conf.j2"
+        dest: "{{ observability_output }}/platform.conf"
+        mode: "0600"
