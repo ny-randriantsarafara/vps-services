@@ -7,7 +7,7 @@ short_description: Send one protocol version 1 request to the VPS controller
 description:
   - Sends a single JSON request to C(sudo -n /usr/local/sbin/vpsctl request) on the VPS.
   - The controller derives the identity from the SSH account; the request cannot choose it.
-  - In check mode, C(apply) becomes C(plan), which reserves nothing. C(destroy) and C(renew)
+  - In check mode, C(apply) becomes C(plan), which reserves nothing. C(destroy), C(renew) and C(backup)
     are not simulated and report C(not_verified).
 version_added: "1.0.0"
 author: Nyhasina Randriantsarafara
@@ -15,7 +15,7 @@ options:
   operation:
     description: Controller operation.
     type: str
-    choices: [apply, plan, destroy, renew, status, logs]
+    choices: [apply, plan, destroy, renew, status, logs, backup]
     required: true
   application:
     description: Application key registered on the VPS.
@@ -107,11 +107,11 @@ PUBLIC_FIELDS = (
     "occupants",
     "audit",
 )
-OPERATIONS = ("apply", "plan", "destroy", "renew", "status", "logs")
+OPERATIONS = ("apply", "plan", "destroy", "renew", "status", "logs", "backup")
 DEPLOYMENT_OPERATIONS = ("apply", "plan")
 DEPLOYMENT_FIELDS = ("compose", "routes", "storage_budget_gib", "reopen")
 GENERATION_OPERATIONS = ("apply", "plan", "destroy", "renew")
-UNSIMULATED_OPERATIONS = ("destroy", "renew")
+UNSIMULATED_OPERATIONS = ("destroy", "renew", "backup")
 
 
 class ProtocolError(Exception):

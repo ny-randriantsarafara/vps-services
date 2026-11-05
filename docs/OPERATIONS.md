@@ -67,6 +67,8 @@ Automatic OVH backup stays enabled. Do not restore it to fix access: it can rein
 
 ## 5. Platform
 
+To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
+
 ```bash
 make plan TARGET=vps-d9d9aca9       # --check --diff simulation
 make platform TARGET=vps-d9d9aca9
@@ -111,6 +113,8 @@ make register-app TARGET=vps-d9d9aca9
 Each account gets its keys and a single sudo rule, `/usr/local/sbin/vpsctl request`, validated with `visudo`. No `docker` group. Policy `/etc/vps-platform/policy.json` is rewritten; no container is started.
 
 ## 7. `vpsctl` commands
+
+For a configured backup, `sudo vpsctl backups run --instance vaultwarden-prod` uses the fixed root-owned command in `vps_backup_commands`. It coordinates with delivery through the controller lock. The administrator installs and reviews that command and its private config first. CI cannot install or replace it. The `vps-instance-backup@vaultwarden-prod.timer` unit invokes the same operation every six hours; inspect its result with `systemctl status` and restricted journal output. Removing a backup from inventory does not erase its snapshots; disable its timer explicitly when retiring it.
 
 For administrators only (`vps-admin` and `root`):
 

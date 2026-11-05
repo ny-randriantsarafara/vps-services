@@ -25,7 +25,7 @@ argument_specs:
         description: Operation requested from the controller. In check mode, apply becomes plan.
         type: str
         default: apply
-        choices: [apply, plan, destroy, renew, status, logs]
+        choices: [apply, plan, destroy, renew, status, logs, backup]
       app_compose_template:
         description: Jinja template for the application Compose, for apply and plan.
         type: path

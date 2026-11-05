@@ -132,8 +132,8 @@ class DeployInstanceModuleTests(unittest.TestCase):
         self.assertNotIn("private-value", json.dumps(result))
         self.assertNotIn("request", result)
 
-    def test_check_mode_never_simulates_destruction_or_renewal(self):
-        for operation in ("destroy", "renew"):
+    def test_check_mode_never_runs_mutating_lifecycle_operations(self):
+        for operation in ("destroy", "renew", "backup"):
             with self.subTest(operation=operation):
                 vpsctl = FakeVpsctl(answer("destroyed", True))
                 result = deploy_instance.run(params(operation), True, vpsctl)

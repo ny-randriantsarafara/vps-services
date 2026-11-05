@@ -137,6 +137,10 @@ class ControllerPolicyRenderTests(unittest.TestCase):
         self.assertEqual(data["preview_limit"], 2)
         self.assertEqual(data["budgets"]["staging"], {"cpus": 1, "memory_mib": 1024})
         self.assertEqual(data["preview_instance_budget"], {"cpus": 1, "memory_mib": 1024})
+        self.assertEqual(data["instance_private_paths"], {"exemple-prod": ["/admin", "/admin/*"]})
+        self.assertEqual(
+            data["backup_commands"], {"exemple-prod": ["/usr/local/lib/exemple/backup"]}
+        )
 
 
 class IngressRenderTests(unittest.TestCase):

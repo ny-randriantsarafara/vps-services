@@ -19,3 +19,4 @@
         controller_instance_hostnames: "{{ vps_instance_hostnames | default({}) }}"
         controller_onboarding_guards: "{{ vps_onboarding_guards | default({}) }}"
         controller_instance_private_paths: "{{ vps_instance_private_paths | default({}) }}"
+        controller_backup_commands: "{{ vps_backup_commands | default({}) }}"

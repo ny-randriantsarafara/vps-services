@@ -28,6 +28,7 @@ LIST_FLAGS = {"container": "-aq", "network": "-q", "volume": "-q"}
 INSPECT_BATCH = 100
 MAX_OUTPUT_BYTES = 2097152
 MAX_LOG_BYTES = 262144
+BACKUP_TIMEOUT_SECONDS = 1800
 ONBOARDING_TIMEOUT_SECONDS = 3
 ONBOARDING_COMPLETE_BODY = b"404: Not Found"
 INSTANCE = re.compile(r"[a-z][a-z0-9-]{1,63}-(?:prod|staging|pr-[1-9][0-9]*)\Z")
@@ -237,6 +238,21 @@ class Runtime:
 
     def free_memory_mib(self):
         return available_memory_mib()
+
+    def backup(self, instance, command):
+        if command != self.policy["backup_commands"].get(instance):
+            raise RuntimeFailure("backup command is not authorized")
+        executable = Path(command[0])
+        try:
+            for path in (executable, *executable.parents):
+                info = path.lstat()
+                if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+                    raise RuntimeFailure("backup executable ownership is unsafe")
+            if not stat.S_ISREG(executable.stat().st_mode) or not os.access(executable, os.X_OK):
+                raise RuntimeFailure("backup executable is unavailable")
+        except OSError:
+            raise RuntimeFailure("backup executable is unavailable") from None
+        self._run(command, timeout=BACKUP_TIMEOUT_SECONDS, max_output=MAX_LOG_BYTES)
 
     def inventory(self):
         result = {}

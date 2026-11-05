@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup the configured VPS instance %i
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vpsctl backups run --instance %i
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=35min

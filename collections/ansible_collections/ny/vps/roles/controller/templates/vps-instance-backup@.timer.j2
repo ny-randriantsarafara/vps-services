@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup the configured VPS instance %i every six hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+Unit=vps-instance-backup@%i.service
+
+[Install]
+WantedBy=timers.target

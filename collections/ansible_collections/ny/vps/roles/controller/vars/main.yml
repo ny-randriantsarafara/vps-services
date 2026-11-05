@@ -32,3 +32,4 @@ controller_policy:
   instance_hostnames: "{{ controller_instance_hostnames | default({}) }}"
   onboarding_guards: "{{ controller_onboarding_guards | default({}) }}"
   instance_private_paths: "{{ controller_instance_private_paths | default({}) }}"
+  backup_commands: "{{ controller_backup_commands | default({}) }}"

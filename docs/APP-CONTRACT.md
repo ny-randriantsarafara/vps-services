@@ -25,7 +25,7 @@ Never `main` or a branch. The server and collection must speak the same protocol
 | `app_environment` | yes | `prod`, `staging`, or `preview` |
 | `app_pull_request` | preview only | PR number; refused for prod and staging |
 | `app_generation` | apply, plan | Increasing integer for the same instance |
-| `app_operation` | no | `apply` (default), `plan`, `destroy`, `renew`, `status`, `logs` |
+| `app_operation` | no | `apply` (default), `plan`, `destroy`, `renew`, `status`, `logs`, `backup` |
 | `app_compose_template` | apply, plan | Jinja template for the application Compose |
 | `app_routes` | no | HTTP routes; `[]` by default |
 | `app_storage_budget_gib` | apply, plan | Instance data growth budget, in GiB |
@@ -33,7 +33,7 @@ Never `main` or a branch. The server and collection must speak the same protocol
 | `app_logs_tail` | no | Log lines for `logs` (1 to 1000, default 100) |
 | `app_render_output` | no | Local `0600` file to write the rendered delivery, for inspection |
 
-In check mode (`--check`), `apply` becomes `plan`: no reservation. `destroy` and `renew` are not simulated and respond `not_verified` without sending anything.
+In check mode (`--check`), `apply` becomes `plan`: no reservation. `destroy`, `renew` and `backup` are not simulated and respond `not_verified` without sending anything.
 
 Identity is the SSH deploy account: one nonprod account for staging and previews, a separate account for production. The request never chooses its identity.
 
@@ -42,7 +42,7 @@ Identity is the SSH deploy account: one nonprod account for staging and previews
 | Field | Operations | Rule |
 | --- | --- | --- |
 | `protocol` | all | `1` |
-| `operation` | all | `apply`, `plan`, `destroy`, `renew`, `status`, `logs` |
+| `operation` | all | `apply`, `plan`, `destroy`, `renew`, `status`, `logs`, `backup` |
 | `application`, `environment` | all | Instance identity |
 | `pull_request` | preview | Integer from 1 to 2147483647 |
 | `generation` | apply, plan, destroy, renew | Positive integer |
@@ -126,7 +126,8 @@ The role shows public fields: `instance`, `status`, `reason`, and when applicabl
 | `destroyed` | Preview resources verified absent |
 | `renewed` | Preview expiration extended by 72 h |
 | `logs` | Instance logs, capped at 256 KiB |
-| `not_verified` | Check mode: `destroy` or `renew` not simulated |
+| `not_verified` | Check mode: `destroy`, `renew` or `backup` not simulated |
+| `backed_up` | The configured instance backup command completed successfully |
 
 For `status`, `status` repeats the registered state (`preparing`, `ready`, `failed`, `deleting`) or `absent`, with `runtime_present`.
 
@@ -151,6 +152,14 @@ Third preview refusal:
 - `renew` accepts only a `ready` preview, with a generation at least equal to its current generation.
 - When the PR closes, the application repository runs `destroy`: route removed, containers, network, and instance volumes deleted, then slot freed.
 - A new preview starts from a fresh volume; an update to the same PR keeps its data.
+
+## Backups
+
+The administrator configures `backup_commands` for exact instances. Each value is a fixed executable argv installed and owned by root, with no writable or symlinked path component. A delivery cannot set the command or choose its arguments. A configured instance can request `backup` through its own deploy identity; administrators can run `vpsctl backups run --instance <name>`. The instance must be ready and its runtime must be owned.
+
+Backups use the controller lock, including the six-hour timer. A real update of an existing configured instance runs its backup before changing the Compose file or registry generation. If it fails, the existing delivery is retained and the update fails. First deployment, read-only operations, plans and replay of a current generation do not run a backup. A backup command must restart its paused service before it uploads; the process has a 30-minute limit and its output is suppressed. Successful requests return `backed_up`.
+
+The application's reviewed backup executable and private config are installed by an administrator, separately from CI delivery. Changing that executable is a privileged code update. CI gets the constrained request operation, never permission to replace the root executable.
 
 ## Secrets and logs
 
