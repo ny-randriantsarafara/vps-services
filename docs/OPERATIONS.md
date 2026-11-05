@@ -198,6 +198,8 @@ Never `docker system prune --volumes` or global deletion: production and staging
 
 ### Refresh an onboarding guard
 
+For private application administration, set `vps_instance_private_paths` in administrator inventory, for example `vaultwarden-prod: ["/admin", "/admin/*"]`. Apply the controller policy and refresh ingress. Check both the private path's public 403 and the public application's readiness. An SSH tunnel to the instance loopback port remains available to the administrator; the rule protects Caddy ingress only.
+
 Set `controller_instance_hostnames` and `controller_onboarding_guards` in controller role variables, only from the administrator inventory. Example for one instance:
 
 ```yaml

@@ -184,6 +184,8 @@ The application inventory verifies the server host key (`StrictHostKeyChecking=y
 
 Root policy `instance_hostnames` maps an exact instance to a list of extra DNS names. An application cannot change this list or take a name owned by another instance. Historical names and prefixes remain accepted.
 
+Root policy `instance_private_paths` maps an exact instance to private URL paths, for example `vaultwarden-prod: ["/admin", "/admin/*"]`. Caddy returns HTTP 403 for these paths on every hostname owned by the instance, including its standard names and aliases. The remaining paths use the normal proxy. Applications cannot change this policy through a delivery request.
+
 Root policy `onboarding_guards` maps an explicitly allowed name to `{path: /api/onboarding, step: user}`. Before opening, Caddy responds HTTP 403 with `private setup required`. Only two responses open the proxy: HTTP 200 containing a JSON list with a single `user` step and `done: true`, or HTTP 404 with the exact body `404: Not Found`, returned by Home Assistant when all onboarding steps are done and the API is no longer served. Network error, limit exceeded, or wrong response keeps the guard closed. Creation `/api/onboarding/users*` stays forbidden on that public route after opening, including after an application reset. SSH tunnel to the loopback port allows private setup. These rules are not application request fields.
 
 A service may set `stop_grace_period`, a positive integer followed by `s` or `m`, capped at 300 seconds. The controller checks the matching Docker `Config.StopTimeout`. Startup timeout stays 120 seconds. `local_health: ready` means the local service responds; `http_status: protected` means its public guard is closed.

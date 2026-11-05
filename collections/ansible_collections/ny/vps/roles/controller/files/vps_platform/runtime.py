@@ -54,12 +54,21 @@ def available_memory_mib(meminfo=MEMINFO):
     raise RuntimeFailure("available memory is unknown")
 
 
-def caddy_configuration(admin_socket, routes, guards=None):
+def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
     guards = guards or {}
+    private_paths = private_paths or {}
     handlers = []
     denied = {"handler": "static_response", "status_code": 403, "body": "private setup required"}
     for route in routes:
         hostname = route["hostname"]
+        if private_paths.get(hostname):
+            handlers.append(
+                {
+                    "match": [{"host": [hostname], "path": private_paths[hostname]}],
+                    "handle": [denied],
+                    "terminal": True,
+                }
+            )
         if hostname in guards:
             handlers.append(
                 {
@@ -524,7 +533,15 @@ class Runtime:
             for route in routes
             if route["hostname"] in self.policy["onboarding_guards"]
         }
-        config = caddy_configuration(self.policy["caddy_admin_socket"], routes, guards)
+        private_paths = {
+            route["hostname"]: paths
+            for instance, paths in self.policy["instance_private_paths"].items()
+            for route in routes
+            if self.policy.owns_hostname(route["hostname"], instance)
+        }
+        config = caddy_configuration(
+            self.policy["caddy_admin_socket"], routes, guards, private_paths
+        )
         path = Path(self.policy["caddy_config"])
         if path.parent.is_symlink() or not path.parent.is_dir():
             raise RuntimeFailure("Caddy configuration directory is missing")

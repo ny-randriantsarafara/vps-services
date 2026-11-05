@@ -16,6 +16,7 @@ DEFAULTS = {
     "accounts": {},
     "instance_hostnames": {},
     "onboarding_guards": {},
+    "instance_private_paths": {},
     "administrators": [],
     "domain": "",
     "preview_limit": 2,
@@ -101,6 +102,7 @@ class Policy:
             if "prod" in account["environments"] and len(account["environments"]) != 1:
                 raise Refused("production identity must be separate")
         self._validate_ingress()
+        self._validate_private_paths()
         for budget in [*self.data["budgets"].values(), self.data["preview_instance_budget"]]:
             if set(budget) != {"cpus", "memory_mib"} or not all(
                 positive_number(v) for v in budget.values()
@@ -168,6 +170,31 @@ class Policy:
                 raise Refused("invalid onboarding guard")
             if guard != {"path": "/api/onboarding", "step": "user"}:
                 raise Refused("invalid onboarding guard endpoint")
+
+    def _validate_private_paths(self):
+        mapping = self["instance_private_paths"]
+        if not isinstance(mapping, dict):
+            raise Refused("invalid private path policy")
+        for instance, paths in mapping.items():
+            match = (
+                re.fullmatch(r"([a-z][a-z0-9-]*)-(?:prod|staging|pr-[1-9][0-9]*)", instance)
+                if isinstance(instance, str)
+                else None
+            )
+            if (
+                not match
+                or not is_application_name(match[1])
+                or not isinstance(paths, list)
+                or not 1 <= len(paths) <= 16
+                or any(
+                    not isinstance(path, str)
+                    or len(path) > 256
+                    or not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(?:/\*)?", path)
+                    for path in paths
+                )
+                or len(set(paths)) != len(paths)
+            ):
+                raise Refused("invalid private path policy")
 
     def owns_hostname(self, hostname, instance):
         from .compose import is_instance_hostname
