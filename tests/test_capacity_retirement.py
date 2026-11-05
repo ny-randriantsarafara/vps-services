@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
 from helpers import BoundaryRuntime, policy, request
 from vps_platform.cli import main
 from vps_platform.controller import Controller
@@ -52,6 +53,27 @@ class CapacityRetirementTests(unittest.TestCase):
         )
         self.assertEqual(self.state(), before)
         self.assertEqual(set(self.runtime.inventory()), {"alpha-prod", "beta-staging"})
+
+    def test_production_inventory_preserves_one_full_preview(self):
+        inventory = yaml.safe_load(
+            (
+                Path(__file__).resolve().parents[1] / "inventories/production/group_vars/all.yml"
+            ).read_text()
+        )
+        config = policy(self.root)
+        for key in ("budgets", "preview_instance_budget", "maximum_total_memory_mib"):
+            config[key] = inventory[f"vps_{key}"]
+        self.controller = Controller(config, self.root / "state", self.runtime)
+        production = inventory["vps_budgets"]["prod"]["memory_mib"]
+        # Two owned stacks fill the declared production envelope, including the vault.
+        self.assertEqual(self.deploy("alpha", memory=production // 2)["status"], "ready")
+        self.assertEqual(
+            self.deploy("beta", memory=production - production // 2)["status"], "ready"
+        )
+        preview = self.deploy(
+            "gamma", "preview", memory=inventory["vps_preview_instance_budget"]["memory_mib"]
+        )
+        self.assertEqual(preview["status"], "ready", preview.get("reason"))
 
     def test_replacement_counts_maximum_old_new_once_and_failed_shrink_keeps_old(self):
         self.assertEqual(self.deploy(memory=512)["status"], "ready")

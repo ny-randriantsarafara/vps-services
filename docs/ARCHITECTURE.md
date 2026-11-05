@@ -44,19 +44,19 @@ Under the lock, in this order:
 1. Validate identity, protocol, fields, images by digest, required environment, volumes, and routes (subset described in [APP-CONTRACT](APP-CONTRACT.md)).
 2. Reconcile the registry with Docker objects labeled `vps.platform.*`. An untracked or ambiguous object blocks new admissions, with no opportunistic deletion.
 3. Count slots: any registered preview, whatever its state, occupies a slot. Updating the same PR does not consume a second one. With the production inventory cap of one, a second preview is refused with the list of occupants and their expiry.
-4. Sum environment budgets and the 6144 MiB global application envelope. The transition reserves per-service max(observed current replicas, new service), with removed/renamed services retained separately; live old one-off jobs and new init jobs are additive. It never drops below a prior failed aggregate reservation until verification succeeds. Unchanged service shapes still update at their normal envelope. Successfully `retired` records reserve no CPU/memory; their retained disk budgets still count. `retiring` and failed records retain compute reservations.
+4. Sum environment budgets and the configured global application envelope (6528 MiB on this VPS; collection default 6144 MiB). The transition reserves per-service max(observed current replicas, new service), with removed/renamed services retained separately; live old one-off jobs and new init jobs are additive. It never drops below a prior failed aggregate reservation until verification succeeds. Unchanged service shapes still update at their normal envelope. Successfully `retired` records reserve no CPU/memory; their retained disk budgets still count. `retiring` and failed records retain compute reservations.
 5. Check memory: a reservation increase must leave at least 512 MiB of `MemAvailable`.
 6. Check disk: free space ≥ 10 GiB reserve + declared storage budgets + 2 GiB image growth, and at least 5% free inodes. After pull, space is measured again: it must still cover reserve plus the instance storage budget, or nothing starts. An image larger than expected is refused before writing data.
 7. Reserve in the registry, then only create resources.
 
 | Envelope | CPU | Memory |
 | --- | --- | --- |
-| All production | 3.1 vCPU | 5120 MiB |
+| All production | 3.35 vCPU | 5504 MiB |
 | All legacy staging | 2 vCPU | 2048 MiB |
 | All previews (one slot) | 1 vCPU | 1024 MiB |
 | One preview | 1 vCPU | 1 GiB |
 
-The global application memory ceiling is 6144 MiB. Current production reservations (5056 MiB) plus one 1024 MiB preview total 6080 MiB. CPU shares favor production (2048 versus 512), without changing its hard limits. These caps are admission rules: they do not physically reserve CPU and do not guarantee performance. Disk is monitored, not quota-enforced: a database can exceed its declared budget.
+The global application memory ceiling on this VPS is 6528 MiB. The full production envelope, including Vaultwarden (5504 MiB), plus one 1024 MiB preview fits that ceiling. The 5 November host read found 7757.9 MiB physical RAM and 5793.4 MiB available; the cap leaves 1229.9 MiB for the host. The collection default remains 6144 MiB, and measured free-memory checks remain independent. CPU shares favor production (2048 versus 512), without changing existing service hard limits. These caps are admission rules: they do not physically reserve CPU and do not guarantee performance. Disk is monitored, not quota-enforced: a database can exceed its declared budget.
 
 ## Delivery
 

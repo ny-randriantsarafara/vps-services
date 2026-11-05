@@ -19,7 +19,9 @@ vps_domain: apps.nyhasinavalona.com
 
 # Global cap, all applications combined.
 vps_preview_limit: 1
-vps_maximum_total_memory_mib: 6144
+# 5,504 MiB production + one 1,024 MiB preview. Host checked 05/11/2026:
+# 7,757.9 MiB physical RAM, 5,793.4 MiB available; 1,229.9 MiB outside this cap.
+vps_maximum_total_memory_mib: 6528
 # Collector is enabled separately after private Grafana Cloud credentials are supplied.
 vps_observability_enabled: false
 
