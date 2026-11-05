@@ -63,11 +63,30 @@ vps_deploy_accounts:
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBfIcsmTeiOcXooYOPwLFY6WRiTyzEK91x4ddtSkcxNB github-actions@portfolio-prod"
 
+  vaultwarden-prod:
+    application: vaultwarden
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO5UpcZKsBJqd9YEtjA8X7pjEctpRIVzuIU9NMpWh+I5 github-actions@vaultwarden-prod"
+
 # Exact administrator alias; applications cannot claim another name.
 # The portfolio public site stays on GitHub Pages: only its API and CMS are on the VPS.
 vps_instance_hostnames:
+  vaultwarden-prod: [vault.nyhasinavalona.com]
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
   portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
 # Closed until the owner has created their account via SSH tunnel.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}
+
+# Administrator-owned restrictions apply to the alias and the platform hostname.
+vps_instance_private_paths:
+  vaultwarden-prod: [/admin, /admin/*]
+vps_backup_commands:
+  vaultwarden-prod: [/usr/local/sbin/vaultwarden-backup]
+
+# Reviewed privileged application code; changing app main alone never replaces it.
+# App commit 00a6b0f82289e21b5ddb291263d213289158f194.
+vps_vaultwarden_backup_checksums:
+  backup.py: a3ecb2edf7800751226289b31838333f848572270ccca422e8d6f96c4d7540e1
+  restore.py: ae35e5e7a6444691f08a221dd82b4f6ac338bbbce5fe22aa140dc1823749fd04

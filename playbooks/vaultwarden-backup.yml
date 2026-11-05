@@ -1,0 +1,88 @@
+---
+# Run as the administrator before controller.yml enables this instance's backup timer.
+# No app CI credential can install or change these files.
+- name: Install reviewed Vaultwarden backup operations
+  hosts: vps
+  become: true
+  gather_facts: false
+  vars:
+    vaultwarden_private_files:
+      - config.json
+      - restic-password
+      - rclone.conf
+      - notification.json
+      - resend-smtp.key
+  pre_tasks:
+    - name: Require the confirmed VPS and explicit local inputs
+      ansible.builtin.assert:
+        that:
+          - target_service | default('') == 'vps-d9d9aca9.vps.ovh.net'
+          - vaultwarden_source_dir | default('') is match('^/')
+          - vaultwarden_private_dir | default('') is match('^/')
+        fail_msg: Give the exact VPS and absolute reviewed source and private input directories.
+    - name: Check the reviewed backup source on the operator machine
+      ansible.builtin.stat:
+        path: "{{ vaultwarden_source_dir }}/scripts/{{ item.key }}"
+        checksum_algorithm: sha256
+        follow: false
+      delegate_to: localhost
+      become: false
+      loop: "{{ vps_vaultwarden_backup_checksums | dict2items }}"
+      register: vaultwarden_source_files
+    - name: Refuse code that differs from the administrator's pinned revision
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not item.stat.islnk | default(false)
+          - item.stat.checksum | default('') == item.item.value
+        fail_msg: Backup source does not match the reviewed checksum.
+      loop: "{{ vaultwarden_source_files.results }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+  tasks:
+    - name: Install the distribution backup tools
+      ansible.builtin.apt:
+        name: [restic, rclone]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Create private administrator-owned backup directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      loop:
+        - /etc/vaultwarden-backup
+        - /usr/local/lib/vaultwarden-backup
+        - /var/lib/vaultwarden-backup
+        - /var/lib/vaultwarden-backup/staging
+        - /var/cache/vaultwarden-backup
+    - name: Install the pinned privileged application scripts
+      ansible.builtin.copy:
+        src: "{{ vaultwarden_source_dir }}/scripts/{{ item }}"
+        dest: "/usr/local/lib/vaultwarden-backup/{{ item }}"
+        owner: root
+        group: root
+        mode: "0600"
+      loop: "{{ vps_vaultwarden_backup_checksums.keys() | list }}"
+    - name: Install the private backup and notification inputs
+      ansible.builtin.copy:
+        src: "{{ vaultwarden_private_dir }}/{{ item }}"
+        dest: "/etc/vaultwarden-backup/{{ item }}"
+        owner: root
+        group: root
+        mode: "0600"
+      loop: "{{ vaultwarden_private_files }}"
+      no_log: true
+      diff: false
+    - name: Install the fixed backup command
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          exec /usr/bin/python3 /usr/local/lib/vaultwarden-backup/backup.py
+        dest: /usr/local/sbin/vaultwarden-backup
+        owner: root
+        group: root
+        mode: "0700"
