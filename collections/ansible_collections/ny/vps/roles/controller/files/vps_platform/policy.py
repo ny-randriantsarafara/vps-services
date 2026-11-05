@@ -16,6 +16,8 @@ DEFAULTS = {
     "accounts": {},
     "instance_hostnames": {},
     "onboarding_guards": {},
+    "instance_private_paths": {},
+    "backup_commands": {},
     "administrators": [],
     "domain": "",
     "preview_limit": 2,
@@ -56,6 +58,15 @@ def is_application_name(value):
         and bool(NAME.fullmatch(value))
         and not INSTANCE_SUFFIX.search(value)
     )
+
+
+def is_instance_name(value):
+    match = (
+        re.fullmatch(r"([a-z][a-z0-9-]*)-(?:prod|staging|pr-[1-9][0-9]*)", value)
+        if isinstance(value, str)
+        else None
+    )
+    return bool(match and is_application_name(match[1]))
 
 
 class Policy:
@@ -102,6 +113,8 @@ class Policy:
             if "prod" in account["environments"] and len(account["environments"]) != 1:
                 raise Refused("production identity must be separate")
         self._validate_ingress()
+        self._validate_private_paths()
+        self._validate_backups()
         for budget in [*self.data["budgets"].values(), self.data["preview_instance_budget"]]:
             if set(budget) != {"cpus", "memory_mib"} or not all(
                 positive_number(v) for v in budget.values()
@@ -173,6 +186,41 @@ class Policy:
                 raise Refused("invalid onboarding guard")
             if guard != {"path": "/api/onboarding", "step": "user"}:
                 raise Refused("invalid onboarding guard endpoint")
+
+    def _validate_private_paths(self):
+        mapping = self["instance_private_paths"]
+        if not isinstance(mapping, dict):
+            raise Refused("invalid private path policy")
+        for instance, paths in mapping.items():
+            if (
+                not is_instance_name(instance)
+                or not isinstance(paths, list)
+                or not 1 <= len(paths) <= 16
+                or any(
+                    not isinstance(path, str)
+                    or len(path) > 256
+                    or not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(?:/\*)?", path)
+                    for path in paths
+                )
+                or len(set(paths)) != len(paths)
+            ):
+                raise Refused("invalid private path policy")
+
+    def _validate_backups(self):
+        if not isinstance(self["backup_commands"], dict):
+            raise Refused("invalid backup policy")
+        for instance, command in self["backup_commands"].items():
+            if (
+                not is_instance_name(instance)
+                or not isinstance(command, list)
+                or not 1 <= len(command) <= 32
+                or any(
+                    not isinstance(argument, str) or "\x00" in argument or len(argument) > 4096
+                    for argument in command
+                )
+                or not Path(command[0]).is_absolute()
+            ):
+                raise Refused("invalid backup policy")
 
     def owns_hostname(self, hostname, instance):
         from .compose import is_instance_hostname

@@ -12,6 +12,10 @@
       staging: {cpus: 1, memory_mib: 1024}
       preview: {cpus: 2, memory_mib: 2048}
     controller_preview_instance_budget: {cpus: 1, memory_mib: 1024}
+    controller_instance_private_paths:
+      exemple-prod: ["/admin", "/admin/*"]
+    controller_backup_commands:
+      exemple-prod: ["/usr/local/lib/exemple/backup"]
     controller_deploy_accounts:
       exemple-nonprod:
         application: exemple

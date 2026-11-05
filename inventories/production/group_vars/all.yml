@@ -28,8 +28,11 @@ vps_observability_enabled: false
 # (measured 11/10/2026), hence 1 vCPU per preview and for my-media staging.
 # Existing production service limits remain unchanged (5056 MiB reserved at rollout).
 # Retained staging records consume disk only after administrator retirement.
+
+# Vaultwarden (05/11/2026): add 0.25 vCPU / 384 MiB to the current prod allocations.
+# Live host check: 7,757 MiB RAM, 5,777 MiB available; other app limits unchanged.
 vps_budgets:
-  prod: {cpus: 3.1, memory_mib: 5120}
+  prod: {cpus: 3.35, memory_mib: 5504}
   staging: {cpus: 2, memory_mib: 2048}
   preview: {cpus: 1, memory_mib: 1024}
 vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
@@ -66,11 +69,30 @@ vps_deploy_accounts:
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBfIcsmTeiOcXooYOPwLFY6WRiTyzEK91x4ddtSkcxNB github-actions@portfolio-prod"
 
+  vaultwarden-prod:
+    application: vaultwarden
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO5UpcZKsBJqd9YEtjA8X7pjEctpRIVzuIU9NMpWh+I5 github-actions@vaultwarden-prod"
+
 # Exact administrator alias; applications cannot claim another name.
 # The portfolio public site stays on GitHub Pages: only its API and CMS are on the VPS.
 vps_instance_hostnames:
+  vaultwarden-prod: [vault.nyhasinavalona.com]
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
   portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
 # Closed until the owner has created their account via SSH tunnel.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}
+
+# Administrator-owned restrictions apply to the alias and the platform hostname.
+vps_instance_private_paths:
+  vaultwarden-prod: [/admin, /admin/*]
+vps_backup_commands:
+  vaultwarden-prod: [/usr/local/sbin/vaultwarden-backup]
+
+# Reviewed privileged application code; changing app main alone never replaces it.
+# App commit 68ca781b1e62a2812bdefe03a6fa54bf1435e767.
+vps_vaultwarden_backup_checksums:
+  backup.py: 0e3ccb49930f6beb562ff07eb884fdaf41c5cfce3a727567519fd1df99ba430a
+  restore.py: ae35e5e7a6444691f08a221dd82b4f6ac338bbbce5fe22aa140dc1823749fd04

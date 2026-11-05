@@ -27,7 +27,7 @@ REQUEST_FIELDS = {
     "reopen",
     "tail",
 }
-OPERATIONS = ("apply", "plan", "destroy", "renew", "status", "logs")
+OPERATIONS = ("apply", "plan", "destroy", "renew", "status", "logs", "backup")
 DEPLOYMENT_OPERATIONS = ("apply", "plan")
 DEPLOYMENT_FIELDS = {"compose", "routes", "storage_budget_gib", "reopen"}
 GENERATION_OPERATIONS = ("apply", "plan", "destroy", "renew")
@@ -347,6 +347,8 @@ class Controller:
             return self._instance_status(state, target)
         if operation == "logs":
             return self._logs(state, target, payload.get("tail", 100))
+        if operation == "backup":
+            return self._backup(state, target)
         if operation == "destroy":
             return self._destroy(state, target.instance, payload["generation"])
         if operation == "renew":
@@ -424,6 +426,19 @@ class Controller:
             logs=self.runtime.logs(target.instance, tail),
         )
 
+    def _backup(self, state, target):
+        record = state["instances"].get(target.instance)
+        command = self.policy["backup_commands"].get(target.instance)
+        if not record or record["status"] not in ("ready", "failed", "preparing") or not command:
+            raise Refused("backup requires a configured owned instance")
+        if target.instance not in self._inventory(state, admission=True):
+            raise Refused("backup runtime is absent")
+        try:
+            self.runtime.backup(target.instance, command)
+        except Exception:
+            return response(target.instance, "failed", "backup failed; existing delivery preserved")
+        return response(target.instance, "backed_up", "instance backup completed", True)
+
     def _renew(self, state, target, generation):
         record = state["instances"].get(target.instance)
         if (
@@ -456,6 +471,16 @@ class Controller:
                 "admissible now; apply rechecks under lock",
                 disk_warning=self._free_disk_gib() < self.policy["disk_warning_gib"],
             )
+        empty_initial_failure = (
+            old
+            and old["status"] in ("failed", "preparing")
+            and old.get("ever_ready") is False
+            and target.instance not in inventory
+        )
+        if old and target.instance in self.policy["backup_commands"] and not empty_initial_failure:
+            backup = self._backup(state, target)
+            if backup["status"] != "backed_up":
+                return backup
         return self._deliver(state, payload, actor, target, delivery, old, reserved)
 
     def _require_newer_than_tombstone(self, state, payload, instance):
@@ -583,6 +608,7 @@ class Controller:
             "storage_budget_gib": reserved_storage(delivery.storage_budget_gib, old),
             "routes": delivery.routes,
             "status": "preparing",
+            "ever_ready": bool(old and (old["status"] == "ready" or old.get("ever_ready", True))),
             "lease_until": time.time() + self.policy["preparing_lease_seconds"],
             "expires_at": old.get("expires_at") if old else None,
             "actor": actor,
@@ -605,6 +631,7 @@ class Controller:
             )
         record.update(
             status="ready",
+            ever_ready=True,
             budget=delivery.budget,
             storage_budget_gib=delivery.storage_budget_gib,
             local_health=result["local_health"],

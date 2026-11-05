@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,66 @@ from vps_platform.runtime import Runtime, caddy_configuration
 
 
 class GuardTests(unittest.TestCase):
+    def test_private_paths_precede_all_instance_routes_without_blocking_other_apps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data = policy(root)
+            data.update(
+                domain="apps.example.test",
+                instance_hostnames={"alpha-pr-1": ["vault.example.test"]},
+                instance_private_paths={"alpha-pr-1": ["/admin", "/admin/*"]},
+                caddy_config=str(root / "caddy.json"),
+            )
+            loaded = []
+            try:
+                runtime = Runtime(
+                    data,
+                    runner=lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, b"", b""),
+                    caddy_loader=loaded.append,
+                    public_probe=lambda route: True,
+                )
+            except Refused as error:
+                self.fail(f"Administrator private-path policy was rejected: {error}")
+            routes = [
+                {"hostname": "alpha-pr-1.apps.example.test", "upstream": "127.0.0.1:20000"},
+                {"hostname": "vault.example.test", "upstream": "127.0.0.1:20000"},
+                {"hostname": "beta-pr-1.apps.example.test", "upstream": "127.0.0.1:20001"},
+            ]
+            runtime.refresh_ingress(routes)
+            handlers = loaded[0]["apps"]["http"]["servers"]["platform"]["routes"]
+            self.assertEqual(len(handlers), 6)
+            for index, hostname in ((0, "alpha-pr-1.apps.example.test"), (2, "vault.example.test")):
+                self.assertEqual(
+                    handlers[index]["match"],
+                    [{"host": [hostname], "path": ["/admin", "/admin/*"]}],
+                )
+                self.assertEqual(handlers[index]["handle"][0]["status_code"], 403)
+                self.assertTrue(handlers[index]["terminal"])
+                self.assertEqual(handlers[index + 1]["handle"][0]["handler"], "reverse_proxy")
+            self.assertEqual(handlers[4]["match"], [{"host": ["beta-pr-1.apps.example.test"]}])
+            self.assertEqual(handlers[4]["handle"][0]["handler"], "reverse_proxy")
+
+    def test_private_paths_require_exact_instance_and_literal_path_patterns(self):
+        for instance, paths in [
+            ("alpha", ["/admin"]),
+            ("alpha--prod", ["/admin"]),
+            ("alpha-pr-0", ["/admin"]),
+            ("alpha-prod", "admin"),
+            ("alpha-prod", []),
+            ("alpha-prod", ["/*"]),
+            ("alpha-prod", ["admin"]),
+            ("alpha-prod", ["//admin"]),
+            ("alpha-prod", ["/../admin"]),
+            ("alpha-prod", ["/admin?token=x"]),
+            ("alpha-prod", ["/admin/**"]),
+            ("alpha-prod", ["/admin", "/admin"]),
+        ]:
+            with self.subTest(instance=instance, paths=paths):
+                data = policy(Path("/tmp"))
+                data["instance_private_paths"] = {instance: paths}
+                with self.assertRaises(Refused):
+                    Policy(data)
+
     def settings(self):
         data = policy(Path("/tmp"))
         data.update(
@@ -140,9 +201,10 @@ class GuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
             controller = Controller(policy(root), root / "state", BoundaryRuntime(root))
-            payload = request()
-            payload["onboarding_guards"] = {}
-            self.assertEqual(controller.request(payload, "alpha-ci")["status"], "refused")
+            for field in ("onboarding_guards", "instance_private_paths"):
+                payload = request()
+                payload[field] = {}
+                self.assertEqual(controller.request(payload, "alpha-ci")["status"], "refused")
             self.assertEqual(controller.refresh_ingress("alpha-ci")["status"], "refused")
 
     def test_refresh_preserves_generation_and_runtime(self):

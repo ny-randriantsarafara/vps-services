@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, stop_grace_seconds
 from .policy import Policy
-from .state import replace_json
+from .state import BACKUP_LOCK_FD, replace_json
 
 MEMINFO = Path("/proc/meminfo")
 REQUEST_LOG_DIRECTORY = Path("/var/log/caddy")
@@ -29,6 +29,7 @@ LIST_FLAGS = {"container": "-aq", "network": "-q", "volume": "-q"}
 INSPECT_BATCH = 100
 MAX_OUTPUT_BYTES = 2097152
 MAX_LOG_BYTES = 262144
+BACKUP_TIMEOUT_SECONDS = 1800
 ONBOARDING_TIMEOUT_SECONDS = 3
 ONBOARDING_COMPLETE_BODY = b"404: Not Found"
 INSTANCE = re.compile(r"[a-z][a-z0-9-]{1,63}-(?:prod|staging|pr-[1-9][0-9]*)\Z")
@@ -101,13 +102,22 @@ def request_logging(routes):
     return {"logs": logs}, {"logger_names": names, "skip_unmapped_hosts": True}
 
 
-def caddy_configuration(admin_socket, routes, guards=None):
+def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
     guards = guards or {}
+    private_paths = private_paths or {}
     logging, access = request_logging(routes)
     handlers = []
     denied = {"handler": "static_response", "status_code": 403, "body": "private setup required"}
     for route in routes:
         hostname = route["hostname"]
+        if private_paths.get(hostname):
+            handlers.append(
+                {
+                    "match": [{"host": [hostname], "path": private_paths[hostname]}],
+                    "handle": [denied],
+                    "terminal": True,
+                }
+            )
         if hostname in guards:
             handlers.append(
                 {
@@ -288,6 +298,26 @@ class Runtime:
     def free_memory_mib(self):
         return available_memory_mib()
 
+    def backup(self, instance, command):
+        if command != self.policy["backup_commands"].get(instance):
+            raise RuntimeFailure("backup command is not authorized")
+        executable = Path(command[0])
+        try:
+            for path in (executable, *executable.parents):
+                info = path.lstat()
+                if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+                    raise RuntimeFailure("backup executable ownership is unsafe")
+            if not stat.S_ISREG(executable.stat().st_mode) or not os.access(executable, os.X_OK):
+                raise RuntimeFailure("backup executable is unavailable")
+        except OSError:
+            raise RuntimeFailure("backup executable is unavailable") from None
+        lock_fd = BACKUP_LOCK_FD.get()
+        if lock_fd is None:
+            raise RuntimeFailure("backup requires the controller lock")
+        self._run(
+            command, timeout=BACKUP_TIMEOUT_SECONDS, max_output=MAX_LOG_BYTES, lock_fd=lock_fd
+        )
+
     def inventory(self):
         result = {}
         try:
@@ -405,10 +435,14 @@ class Runtime:
     def _disk_free_gib(self):
         return shutil.disk_usage(self.policy["apps_dir"]).free / GIB
 
-    def _run(self, argv, timeout=180, max_output=MAX_OUTPUT_BYTES):
+    def _run(self, argv, timeout=180, max_output=MAX_OUTPUT_BYTES, lock_fd=None):
         # Files bound memory usage and are unlinked immediately, even on timeout.
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             try:
+                options = {"pass_fds": (lock_fd,)} if lock_fd is not None else {}
+                environment = dict(COMMAND_ENVIRONMENT)
+                if lock_fd is not None:
+                    environment["VPS_BACKUP_LOCK_FD"] = str(lock_fd)
                 completed = self.runner(
                     argv,
                     stdin=subprocess.DEVNULL,
@@ -416,8 +450,9 @@ class Runtime:
                     stderr=errors,
                     timeout=timeout,
                     check=False,
-                    env=COMMAND_ENVIRONMENT,
+                    env=environment,
                     cwd="/",
+                    **options,
                 )
                 if completed.returncode:
                     raise RuntimeFailure("host command failed")
@@ -672,7 +707,15 @@ class Runtime:
             for route in routes
             if route["hostname"] in self.policy["onboarding_guards"]
         }
-        config = caddy_configuration(self.policy["caddy_admin_socket"], routes, guards)
+        private_paths = {
+            route["hostname"]: paths
+            for instance, paths in self.policy["instance_private_paths"].items()
+            for route in routes
+            if self.policy.owns_hostname(route["hostname"], instance)
+        }
+        config = caddy_configuration(
+            self.policy["caddy_admin_socket"], routes, guards, private_paths
+        )
         self._prepare_request_logs(config)
         path = Path(self.policy["caddy_config"])
         if path.parent.is_symlink() or not path.parent.is_dir():

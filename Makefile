@@ -1,4 +1,4 @@
-.PHONY: help setup check test integration observability-check http-metrics-check monitoring-rules-check collection plan bootstrap platform register-app observability
+.PHONY: help setup check test integration collection plan bootstrap platform controller register-app observability-check http-metrics-check monitoring-rules-check observability
 .DEFAULT_GOAL := help
 
 PYTHON ?= python3
@@ -51,6 +51,10 @@ platform: ## Apply the platform on TARGET without starting an application
 register-app: ## Register deploy accounts from vps_deploy_accounts on TARGET
 	$(require_target)
 	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/register-app.yml --limit '$(TARGET)'
+
+controller: ## Update only controller code, policy and timers on TARGET
+	$(require_target)
+	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/controller.yml --limit '$(TARGET)'
 
 observability: ## Configure only Alloy after credential preflight, no Docker/Caddy package roles
 	$(require_target)

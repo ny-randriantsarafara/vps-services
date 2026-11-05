@@ -67,6 +67,8 @@ Automatic OVH backup stays enabled. Do not restore it to fix access: it can rein
 
 ## 5. Platform
 
+To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
+
 ```bash
 make plan TARGET=vps-d9d9aca9       # --check --diff simulation
 make platform TARGET=vps-d9d9aca9
@@ -111,6 +113,8 @@ make register-app TARGET=vps-d9d9aca9
 Each account gets its keys and a single sudo rule, `/usr/local/sbin/vpsctl request`, validated with `visudo`. No `docker` group. Policy `/etc/vps-platform/policy.json` is rewritten; no container is started.
 
 ## 7. `vpsctl` commands
+
+For a configured backup, `sudo vpsctl backups run --instance vaultwarden-prod` uses the fixed root-owned command in `vps_backup_commands`. It coordinates with delivery through the controller lock. The administrator installs and reviews that command and its private config first. CI cannot install or replace it. The `vps-instance-backup@vaultwarden-prod.timer` unit invokes the same operation every six hours; inspect its result with `systemctl status` and restricted journal output. Removing a backup from inventory does not erase its snapshots; disable its timer explicitly when retiring it.
 
 For administrators only (`vps-admin` and `root`):
 
@@ -200,6 +204,8 @@ Never `docker system prune --volumes` or global deletion: production and staging
 
 ### Refresh an onboarding guard
 
+For private application administration, set `vps_instance_private_paths` in administrator inventory, for example `vaultwarden-prod: ["/admin", "/admin/*"]`. Apply the controller policy and refresh ingress. Check both the private path's public 403 and the public application's readiness. An SSH tunnel to the instance loopback port remains available to the administrator; the rule protects Caddy ingress only.
+
 Set `controller_instance_hostnames` and `controller_onboarding_guards` in controller role variables, only from the administrator inventory. Example for one instance:
 
 ```yaml
@@ -215,6 +221,10 @@ controller_onboarding_guards:
 After the owner is created privately via SSH tunnel, run `sudo vpsctl ingress refresh`. This administrator command takes the registry lock, verifies ownership of existing objects, and republishes ready routes. It does not change generations or start or stop applications. An identical Caddy configuration causes no reload. Maintenance also runs this refresh every five minutes; preview cleanup keeps its existing rules.
 
 A closed guard is exposed as `http_status: protected`, regardless of local health. After full onboarding, Home Assistant no longer serves `/api/onboarding`: its exact 404 `404: Not Found` opens the guard; any other 404 leaves it closed. Onboarding probes target only the registered loopback port, no redirect, with a three-second timeout and a 64 KiB limit. The public path `/api/onboarding/users*` stays forbidden; continue owner creation via the private tunnel after a reset.
+
+Backup processes inherit the active controller lock descriptor. Their direct local commands keep it while they run, so terminating the controller does not release coordination before backup recovery completes. Use signal-aware, bounded backup commands; the Vaultwarden driver restarts its previously running container on ordinary termination. A fatal kill or failed Docker restart needs operator inspection.
+
+A failed delivery with owned runtime resources still needs a fresh backup before a corrected delivery. Only a failed first delivery recorded as never ready, with no owned runtime resources, may retry without a backup. Missing resources after a successful delivery are not treated as an empty first deployment.
 
 ## Production/previews rollout and retained staging recovery
 

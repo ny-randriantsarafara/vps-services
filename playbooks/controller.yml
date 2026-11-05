@@ -1,0 +1,20 @@
+---
+# Update controller code, admission policy and its timers without reprovisioning the host.
+- name: Update the admission controller and application operations
+  hosts: vps
+  become: true
+  gather_facts: false
+  roles:
+    - role: ny.vps.controller
+      vars:
+        controller_admin_user: "{{ vps_admin_user }}"
+        controller_domain: "{{ vps_domain }}"
+        controller_preview_limit: "{{ vps_preview_limit }}"
+        controller_deploy_accounts: "{{ vps_deploy_accounts }}"
+        controller_budgets: "{{ vps_budgets }}"
+        controller_maximum_total_memory_mib: "{{ vps_maximum_total_memory_mib | default(6144) }}"
+        controller_preview_instance_budget: "{{ vps_preview_instance_budget }}"
+        controller_instance_hostnames: "{{ vps_instance_hostnames | default({}) }}"
+        controller_onboarding_guards: "{{ vps_onboarding_guards | default({}) }}"
+        controller_instance_private_paths: "{{ vps_instance_private_paths | default({}) }}"
+        controller_backup_commands: "{{ vps_backup_commands | default({}) }}"

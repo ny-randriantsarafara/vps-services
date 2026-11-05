@@ -36,6 +36,9 @@ def parser():
     retire.add_argument("--instance", required=True)
     ingress = commands.add_parser("ingress").add_subparsers(dest="ingress_command", required=True)
     ingress.add_parser("refresh")
+    backups = commands.add_parser("backups").add_subparsers(dest="backup_command", required=True)
+    backup = backups.add_parser("run")
+    backup.add_argument("--instance", required=True)
     previews = commands.add_parser("previews").add_subparsers(dest="preview_command", required=True)
     previews.add_parser("list")
     for name in ("destroy", "renew"):
@@ -104,7 +107,7 @@ def instance_payload(controller, instance, operation, tail=None):
     with controller.registry.locked():
         state = controller.registry.load()
     record = state["instances"].get(instance)
-    if not record or (record["environment"] != "preview" and operation != "logs"):
+    if not record or (record["environment"] != "preview" and operation not in ("logs", "backup")):
         raise Refused("requested instance is not available for this operation")
     payload = {
         "protocol": 1,
@@ -129,6 +132,8 @@ def request_payload(arguments, stdin):
 def instance_operation(arguments):
     if arguments.command == "logs":
         return "logs"
+    if arguments.command == "backups":
+        return "backup"
     return arguments.preview_command
 
 

@@ -13,5 +13,8 @@ controller_preview_instance_budget: {cpus: 0.5, memory_mib: 1024}
 # Administrator-owned exact hostname grants and private onboarding policies.
 controller_instance_hostnames: {}
 controller_onboarding_guards: {}
+controller_instance_private_paths: {}
+# Exact instance -> fixed administrator-owned executable argv.
+controller_backup_commands: {}
 
 controller_maximum_total_memory_mib: 6144
