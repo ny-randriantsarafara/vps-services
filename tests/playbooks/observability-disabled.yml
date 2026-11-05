@@ -1,0 +1,7 @@
+---
+- name: Verify optional telemetry locally without cloud access
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: ny.vps.observability

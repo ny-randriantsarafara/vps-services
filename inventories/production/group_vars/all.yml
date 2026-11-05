@@ -19,12 +19,16 @@ vps_domain: apps.nyhasinavalona.com
 
 # Global cap, all applications combined.
 vps_preview_limit: 1
+vps_maximum_total_memory_mib: 6144
+# Collector is enabled separately after private Grafana Cloud credentials are supplied.
+vps_observability_enabled: false
 
 # Admission budgets (vCPU / MiB), all instances of an environment combined, then one preview.
 # CPU is not reserved: 4 vCPU on the host. Directus takes more than 120 s to start under 0.2 vCPU
 # (measured 11/10/2026), hence 1 vCPU per preview and for my-media staging.
-# Portfolio (13/10/2026): prod 0.8 vCPU / 1,088 MiB, staging 0.85 vCPU / 1,024 MiB; a single
-# preview to keep declared memory within the host 8 GiB. These are caps.
+# Existing production service limits remain unchanged (5056 MiB reserved at rollout).
+# Retained staging records consume disk only after administrator retirement.
+
 # Vaultwarden (05/11/2026): add 0.25 vCPU / 384 MiB to the current prod allocations.
 # Live host check: 7,757 MiB RAM, 5,777 MiB available; other app limits unchanged.
 vps_budgets:
@@ -36,12 +40,12 @@ vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
 # Application deploy accounts (playbooks/register-app.yml), for example:
 #   exemple-nonprod:
 #     application: exemple
-#     environments: [staging, preview]
+#     environments: [preview]
 #     public_keys: ["ssh-ed25519 AAAA... ci@exemple"]
 vps_deploy_accounts:
   my-media-nonprod:
     application: my-media
-    environments: [staging, preview]
+    environments: [preview]
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKu1xgGYOhEqHlL+wkfcTlViEF9mc/Oy6ni/vI8KtVS6 github-actions@my-media-nonprod"
   my-media-prod:
@@ -56,7 +60,7 @@ vps_deploy_accounts:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIFGAmmYZe4oK18XUbmoL+BNN8LmMufDohqD/y2vCI04 github-actions@home-assistant-prod"
   portfolio-nonprod:
     application: portfolio
-    environments: [staging]
+    environments: [preview]
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA7nWjU1K7m1lrNekN8l9QzeW7cKYOKWwFTk0i7ayNlw github-actions@portfolio-nonprod"
   portfolio-prod:

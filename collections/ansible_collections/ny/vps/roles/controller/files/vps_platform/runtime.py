@@ -22,6 +22,7 @@ from .policy import Policy
 from .state import BACKUP_LOCK_FD, replace_json
 
 MEMINFO = Path("/proc/meminfo")
+REQUEST_LOG_DIRECTORY = Path("/var/log/caddy")
 GIB = 1073741824
 RESOURCE_KINDS = ("container", "network", "volume")
 LIST_FLAGS = {"container": "-aq", "network": "-q", "volume": "-q"}
@@ -55,9 +56,56 @@ def available_memory_mib(meminfo=MEMINFO):
     raise RuntimeFailure("available memory is unknown")
 
 
+def request_logging(routes):
+    """One sanitized access record per matched request; never attacker-controlled labels."""
+    names, logs = {}, {}
+    for route in routes:
+        if "application" not in route or "environment" not in route:
+            continue
+        application, environment = route["application"], route["environment"]
+        name = application + "-" + environment
+        names[route["hostname"]] = name
+        logs[name] = {
+            "include": ["http.log.access." + name],
+            "writer": {
+                "output": "file",
+                "filename": str(REQUEST_LOG_DIRECTORY / "vps-http.json"),
+                "mode": "0600",
+                "dir_mode": "0700",
+                "roll_size_mb": 10,
+                "roll_keep": 2,
+                "roll_keep_days": 1,
+            },
+            "encoder": {
+                "format": "append",
+                "fields": {"application": application, "environment": environment},
+                "wrap": {
+                    "format": "filter",
+                    "wrap": {"format": "json"},
+                    "fields": {
+                        key: {"filter": "delete"}
+                        for key in (
+                            "request",
+                            "resp_headers",
+                            "user_id",
+                            "error",
+                            "err_id",
+                            "err_trace",
+                        )
+                    },
+                },
+            },
+        }
+    if not logs:
+        return {}, {}
+    logs["default"] = {"exclude": ["http.log.access"]}
+    return {"logs": logs}, {"logger_names": names, "skip_unmapped_hosts": True}
+
+
 def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
     guards = guards or {}
     private_paths = private_paths or {}
+    logging, access = request_logging(routes)
     handlers = []
     denied = {"handler": "static_response", "status_code": 403, "body": "private setup required"}
     for route in routes:
@@ -85,9 +133,19 @@ def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
     neutral = {"handle": [{"handler": "static_response", "status_code": 404}], "terminal": True}
     # Port 80 stays with Caddy's automatic HTTPS: ACME challenges and redirects only.
     return {
+        **({"logging": logging} if logging else {}),
         "admin": {"listen": "unix/" + admin_socket},
         "apps": {
-            "http": {"servers": {"platform": {"listen": [":443"], "routes": [*handlers, neutral]}}}
+            "http": {
+                "metrics": {},
+                "servers": {
+                    "platform": {
+                        "listen": [":443"],
+                        **({"logs": access} if access else {}),
+                        "routes": [*handlers, neutral],
+                    }
+                },
+            }
         },
     }
 
@@ -152,6 +210,7 @@ def require_admitted_limits(host, service):
         or host.get("Memory") != expected_memory
         or host.get("MemorySwap") != expected_memory
         or host.get("PidsLimit") != service["pids_limit"]
+        or ("cpu_shares" in service and host.get("CpuShares") != service["cpu_shares"])
         or (
             "stop_grace_period" in service
             and host.get("StopTimeout") != stop_grace_seconds(service["stop_grace_period"])
@@ -305,6 +364,62 @@ class Runtime:
         if self._owned(instance):
             raise RuntimeFailure("instance resources remain after deletion")
 
+    def refresh_cpu_weights(self):
+        inventory = self.inventory()
+        if any(not record["owned"] for record in inventory.values()):
+            raise RuntimeFailure("ambiguous platform resource ownership")
+        changed = False
+        for instance, entry in inventory.items():
+            shares = 2048 if instance.endswith("-prod") else 512
+            for resource in entry["resources"]:
+                if resource["kind"] != "container":
+                    continue
+                container = resource["object"]
+                if container.get("State", {}).get("Status") != "running":
+                    continue
+                if container.get("HostConfig", {}).get("CpuShares") == shares:
+                    continue
+                # Reinspect ownership before touching the live container.
+                current = next(
+                    (
+                        item
+                        for item in self._owned(instance)
+                        if item["kind"] == "container" and item["id"] == resource["id"]
+                    ),
+                    None,
+                )
+                if current is None:
+                    raise RuntimeFailure("container changed during CPU update")
+                self._docker("update", "--cpu-shares", str(shares), resource["id"], timeout=30)
+                updated = next(
+                    (
+                        item
+                        for item in self._owned(instance)
+                        if item["kind"] == "container" and item["id"] == resource["id"]
+                    ),
+                    None,
+                )
+                if updated is None or updated["object"]["HostConfig"].get("CpuShares") != shares:
+                    raise RuntimeFailure("effective CPU weight does not match policy")
+                changed = True
+        return changed
+
+    def retire_staging(self, instance, compose_path, routes):
+        if (
+            not isinstance(instance, str)
+            or not INSTANCE.fullmatch(instance)
+            or not instance.endswith("-staging")
+        ):
+            raise RuntimeFailure("only staging may be retired")
+        resources = self._owned(instance)
+        self._publish(routes)
+        for kind in ("container", "network"):
+            for resource in resources:
+                if resource["kind"] == kind:
+                    self._remove_if_still_owned(instance, resource)
+        if any(resource["kind"] != "volume" for resource in self._owned(instance)):
+            raise RuntimeFailure("staging compute resources remain")
+
     def logs(self, instance, tail):
         containers = [
             resource for resource in self._owned(instance) if resource["kind"] == "container"
@@ -443,7 +558,7 @@ class Runtime:
             if resource["kind"] != "container":
                 continue
             service = resource["object"]["Config"]["Labels"].get("com.docker.compose.service")
-            if service not in services:
+            if service not in services or is_init_job(services[service]):
                 self._docker("container", "rm", "--force", resource["id"])
 
     def _remove_if_still_owned(self, instance, resource):
@@ -551,6 +666,39 @@ class Runtime:
         self._publish(routes)
         return {route["hostname"]: self._public_status([route]) for route in routes}
 
+    def _prepare_request_logs(self, config):
+        if "logging" not in config:
+            return
+        path = REQUEST_LOG_DIRECTORY
+        path.mkdir(mode=0o700, exist_ok=True)
+        if path.is_symlink() or not path.is_dir():
+            raise RuntimeFailure("request log directory ownership is unsafe")
+        account = pwd.getpwnam("caddy")
+        os.chown(path, account.pw_uid, account.pw_gid, follow_symlinks=False)
+        os.chmod(path, 0o700, follow_symlinks=False)
+        # `caddy validate` opens log outputs as root before the service loads
+        # them. Prepare the file for the service without truncating records.
+        try:
+            fd = os.open(
+                path / "vps-http.json",
+                os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+            )
+        except OSError:
+            raise RuntimeFailure("request log file ownership is unsafe") from None
+        try:
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid not in (0, account.pw_uid)
+            ):
+                raise RuntimeFailure("request log file ownership is unsafe")
+            os.fchown(fd, account.pw_uid, account.pw_gid)
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+
     def _publish(self, routes):
         if not self.policy["domain"] and not routes:
             return
@@ -568,6 +716,7 @@ class Runtime:
         config = caddy_configuration(
             self.policy["caddy_admin_socket"], routes, guards, private_paths
         )
+        self._prepare_request_logs(config)
         path = Path(self.policy["caddy_config"])
         if path.parent.is_symlink() or not path.parent.is_dir():
             raise RuntimeFailure("Caddy configuration directory is missing")

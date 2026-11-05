@@ -1,0 +1,275 @@
+// Host-side collector only. Cloud secrets are loaded through its private EnvironmentFile.
+logging {
+  level = "warn"
+}
+prometheus.exporter.unix "host" {
+  set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev", "stat", "time", "uname", "textfile"]
+  textfile {
+    directory = "/run/alloy-platform"
+  }
+}
+prometheus.scrape "host" {
+  targets = prometheus.exporter.unix.host.targets
+  scrape_interval = "60s"
+  forward_to = [prometheus.remote_write.cloud.receiver]
+}
+prometheus.exporter.cadvisor "containers" {
+  docker_only = true
+  disable_root_cgroup_stats = true
+  storage_duration = "1m"
+  store_container_labels = false
+  allowlisted_container_labels = ["vps.platform.instance", "com.docker.compose.service"]
+  enabled_metrics = ["cpu", "memory"]
+}
+prometheus.scrape "containers" {
+  targets = prometheus.exporter.cadvisor.containers.targets
+  scrape_interval = "60s"
+  forward_to = [prometheus.relabel.containers.receiver]
+}
+prometheus.relabel "containers" {
+  forward_to = [prometheus.remote_write.cloud.receiver]
+  rule {
+    source_labels = ["container_label_vps_platform_instance"]
+    regex = "(.+)-(prod|staging|pr-[0-9]+)"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["container_label_vps_platform_instance"]
+    regex = "(.+)-(prod|staging|pr-[0-9]+)"
+    target_label = "application"
+    replacement = "$1"
+  }
+  rule {
+    source_labels = ["container_label_vps_platform_instance"]
+    regex = ".+-(prod|staging)"
+    target_label = "environment"
+    replacement = "$1"
+  }
+  rule {
+    source_labels = ["container_label_vps_platform_instance"]
+    regex = ".+-pr-[0-9]+"
+    target_label = "environment"
+    replacement = "preview"
+  }
+  rule {
+    source_labels = ["container_label_com_docker_compose_service"]
+    target_label = "service"
+  }
+  rule {
+    action = "labelkeep"
+    regex = "__name__|instance|job|application|environment|service|cpu|failure_type|scope"
+  }
+}
+prometheus.exporter.blackbox "http" {
+  config = `modules:
+  http:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200, 204, 301, 302, 401, 403, 404]
+      preferred_ip_protocol: ip4
+      follow_redirects: false
+`
+{% for target in observability_http_targets %}
+  target {
+    name = {{ target.name | to_json }}
+    address = {{ target.address | to_json }}
+    module = "http"
+    labels = { application = {{ target.application | to_json }}, environment = "prod" }
+  }
+{% endfor %}
+}
+prometheus.scrape "http" {
+  targets = prometheus.exporter.blackbox.http.targets
+  scrape_interval = "60s"
+  forward_to = [prometheus.remote_write.cloud.receiver]
+}
+prometheus.remote_write "cloud" {
+  external_labels = { host = {{ observability_host_label | to_json }} }
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_METRICS_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_METRICS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+    queue_config {
+      capacity = 2500
+      min_shards = 1
+      max_shards = 1
+      max_samples_per_send = 500
+      sample_age_limit = "15m"
+    }
+  }
+  wal {
+    truncate_frequency = "5m"
+    min_keepalive_time = "1m"
+    max_keepalive_time = "15m"
+  }
+}
+discovery.docker "apps" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "60s"
+  filter {
+    name = "label"
+    values = ["vps.platform.managed=1"]
+  }
+}
+discovery.relabel "logs" {
+  targets = discovery.docker.apps.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_vps_platform_instance"]
+    regex = "(.+)-(prod|staging|pr-[0-9]+)"
+    target_label = "application"
+    replacement = "$1"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_vps_platform_instance"]
+    regex = ".+-(prod|staging)"
+    target_label = "environment"
+    replacement = "$1"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_vps_platform_instance"]
+    regex = ".+-pr-[0-9]+"
+    target_label = "environment"
+    replacement = "preview"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service"
+  }
+}
+loki.source.docker "apps" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.logs.output
+  labels = { job = "applications", host = {{ observability_host_label | to_json }} }
+  forward_to = [loki.process.redact.receiver]
+}
+loki.source.journal "system" {
+  max_age = "1h"
+  matches = "_SYSTEMD_UNIT=caddy.service _SYSTEMD_UNIT=docker.service _SYSTEMD_UNIT=vps-platform-maintenance.service"
+  labels = { job = "system", host = {{ observability_host_label | to_json }} }
+  forward_to = [loki.process.redact.receiver]
+}
+loki.process "redact" {
+  forward_to = [loki.write.cloud.receiver]
+  stage.drop {
+    longer_than = "4KiB"
+    drop_counter_reason = "oversized"
+  }
+  // Drop credential-bearing lines rather than guessing every application's secret format.
+  stage.drop {
+    expression = "(?i)(authorization|cookie|password|passwd|secret|token|api[_-]?key|bearer|BEGIN .*PRIVATE KEY|://[^ /]+:[^ /]+@)"
+    drop_counter_reason = "sensitive"
+  }
+  // Explicitly redact email addresses in remaining diagnostic messages.
+  stage.replace {
+    expression = `([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})`
+    replace = "[REDACTED_EMAIL]"
+  }
+  stage.match {
+    selector = "{job=~\".+\"} !~ \"(?i)(warn|error|fatal|panic|critical|failed)\""
+    action = "drop"
+    drop_counter_reason = "non_diagnostic"
+  }
+  stage.limit {
+    rate = 1
+    burst = 10
+    drop = true
+  }
+  stage.label_keep {
+    values = ["host", "job", "application", "environment", "service"]
+  }
+}
+loki.write "cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOGS_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOGS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+    batch_size = "256KiB"
+    batch_wait = "5s"
+    min_backoff_period = "1s"
+    max_backoff_period = "30s"
+    max_backoff_retries = 3
+  }
+}
+
+// Local metrics from source-sanitized Caddy records. Raw access records are never exported.
+loki.source.file "http_traffic" {
+  tail_from_end = true
+  targets = [{ __path__ = "/var/log/caddy/vps-http.json" }]
+  forward_to = [loki.process.http_traffic.receiver]
+}
+loki.process "http_traffic" {
+  forward_to = []
+  stage.json {
+    expressions = { application = "application", environment = "environment", code = "status", duration = "duration", event_time = "ts" }
+    drop_malformed = true
+  }
+  stage.labels {
+    values = { application = "", environment = "", code = "" }
+  }
+  stage.match {
+    selector = "{application!~\"my-media|portfolio|home-assistant\"}"
+    action = "drop"
+  }
+  stage.match {
+    selector = "{environment!~\"prod|staging|preview\"}"
+    action = "drop"
+  }
+  stage.match {
+    selector = "{code!~\"[1-5][0-9][0-9]\"}"
+    action = "drop"
+  }
+  stage.label_keep {
+    values = ["application", "environment", "code"]
+  }
+  stage.metrics {
+    metric.counter {
+      name = "requests_total"
+      prefix = "vps_http_"
+      action = "inc"
+      match_all = true
+      max_idle_duration = "24h"
+    }
+    metric.histogram {
+      name = "request_duration_seconds"
+      prefix = "vps_http_"
+      source = "duration"
+      buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+      max_idle_duration = "24h"
+    }
+  }
+  // A server event timestamp is visible on the first scrape, even for a lazy/reset counter.
+  stage.match {
+    selector = "{code=~\"5..\"}"
+    stage.metrics {
+      metric.gauge {
+        name = "last_error_timestamp_seconds"
+        prefix = "vps_http_"
+        source = "event_time"
+        action = "set"
+        max_idle_duration = "24h"
+      }
+    }
+  }
+}
+prometheus.scrape "http_traffic" {
+  targets = [{ __address__ = "127.0.0.1:12345" }]
+  scrape_interval = "60s"
+  forward_to = [prometheus.relabel.http_traffic.receiver]
+}
+prometheus.relabel "http_traffic" {
+  forward_to = [prometheus.remote_write.cloud.receiver]
+  rule {
+    source_labels = ["__name__"]
+    regex = "vps_http_(requests_total|last_error_timestamp_seconds|request_duration_seconds_(bucket|count|sum))"
+    action = "keep"
+  }
+  rule {
+    action = "labelkeep"
+    regex = "__name__|application|environment|code|le"
+  }
+}

@@ -21,6 +21,14 @@
     mode: "0700"
   loop: "{{ controller_private_directories }}"
 
+- name: Prepare private source logging independently of optional Alloy
+  ansible.builtin.file:
+    path: /var/log/caddy
+    state: directory
+    owner: caddy
+    group: caddy
+    mode: "0700"
+
 - name: Install the controller modules
   ansible.builtin.copy:
     src: "vps_platform/{{ item }}"

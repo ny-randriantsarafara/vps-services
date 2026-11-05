@@ -1,0 +1,5 @@
+---
+- name: Configure the optional independent collector
+  ansible.builtin.include_tasks: enabled.yml
+  when: observability_enabled | bool
+  tags: [always]

@@ -1,14 +1,16 @@
 """Admission and lifecycle under one host lock. Answers never echo submitted values."""
 
+import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
 from typing import NamedTuple
 
-from .compose import IMAGE, normalize
+from .compose import IMAGE, INIT_PROFILE, memory_mib, normalize
 from .policy import Policy, Refused, identity, positive_number
 from .state import Registry, append_json_line, atomic_json, private_directory
 
@@ -107,11 +109,47 @@ def delivery_fingerprint(compose, routes, storage):
     return hashlib.sha256(document.encode()).hexdigest()
 
 
-def reservation(budget, old):
-    """Failed updates reserve max(old, new): neither set of resources is assumed absent."""
-    if not old:
-        return budget
-    return {key: max(budget[key], old["budget"][key]) for key in budget}
+def reservation(compose, old, resources):
+    """Bound sequential Compose replacement, including renamed services and live one-offs."""
+    current = {}
+    oneoffs = {"cpus": 0, "memory_mib": 0}
+    for resource in resources:
+        if resource["kind"] != "container":
+            continue
+        container = resource["object"]
+        labels = container["Config"]["Labels"]
+        if labels.get("com.docker.compose.oneoff", "").lower() == "true":
+            if container.get("State", {}).get("Status") in ("exited", "dead"):
+                continue
+            group = oneoffs
+        else:
+            name = labels.get("com.docker.compose.service")
+            if not name:
+                raise Refused("runtime service limits require operator reconciliation")
+            group = current.setdefault(name, {"cpus": 0, "memory_mib": 0})
+        host = container["HostConfig"]
+        if not positive_number(host.get("Memory")) or not positive_number(host.get("NanoCpus")):
+            raise Refused("runtime service limits require operator reconciliation")
+        group["memory_mib"] += host["Memory"] / 1048576
+        group["cpus"] += host["NanoCpus"] / 1e9
+    reserved = dict(oneoffs)
+    for name, service in compose["services"].items():
+        budget = {"cpus": service["cpus"], "memory_mib": memory_mib(service["mem_limit"])}
+        if INIT_PROFILE in service.get("profiles", []):
+            # A new one-off may coexist with any failed run or old regular service.
+            for key in reserved:
+                reserved[key] += budget[key]
+        else:
+            previous = current.setdefault(name, {"cpus": 0, "memory_mib": 0})
+            for key in previous:
+                previous[key] = max(previous[key], budget[key])
+    for budget in current.values():
+        for key in reserved:
+            reserved[key] += budget[key]
+    # A failed delivery's previous upper bound is not released until verified success.
+    if old:
+        reserved = {key: max(amount, old["budget"][key]) for key, amount in reserved.items()}
+    return reserved
 
 
 def reserved_storage(storage, old):
@@ -203,6 +241,68 @@ class Controller:
         except Exception:
             return response(None, "failed", "ingress refresh failed; operator inspection required")
 
+    def refresh_cpu_weights(self, actor):
+        try:
+            self.policy.authorize(actor, admin=True)
+            with self.registry.locked():
+                state = self.registry.load()
+                self._inventory(state, admission=True)
+                changed = self.runtime.refresh_cpu_weights()
+            result = response(None, "ready", "CPU weights normalized without restart", changed)
+        except Refused as error:
+            result = response(None, "refused", str(error))
+        except Exception:
+            result = response(None, "failed", "CPU weight normalization incomplete")
+        return self._audited(
+            actor, {"operation": "cpu-weights", "generation": None, "images": {}}, result
+        )
+
+    def retire_staging(self, instance, actor):
+        changed = False
+        try:
+            self.policy.authorize(actor, admin=True)
+            if not isinstance(instance, str) or not re.fullmatch(
+                r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*-staging", instance
+            ):
+                raise Refused("only a registered staging instance may be retired")
+            with self.registry.locked():
+                state = self.registry.load()
+                record = state["instances"].get(instance)
+                if not record or record["environment"] != "staging":
+                    raise Refused("only a registered staging instance may be retired")
+                self._inventory(state, admission=True)
+                if record["status"] == "retired":
+                    result = response(instance, "retired", "staging already retired")
+                else:
+                    # Fence deliveries and remove routes from refresh before runtime changes.
+                    record["status"] = "retiring"
+                    self.registry.save(state)
+                    changed = True
+                    path = self._path(record["application"], record["suffix"])
+                    self.runtime.retire_staging(instance, path, self._routes(state))
+                    remaining = self._inventory(state).get(instance, {}).get("resources", [])
+                    if any(item["kind"] != "volume" for item in remaining):
+                        raise Refused("staging compute resources remain")
+                    record.update(
+                        status="retired",
+                        retired_at=time.time(),
+                        local_health="retired",
+                        http_status="unconfigured",
+                    )
+                    self.registry.save(state)
+                    result = response(instance, "retired", "staging data retained", True)
+        except Refused as error:
+            result = response(
+                instance if isinstance(instance, str) else None, "refused", str(error), changed
+            )
+        except Exception:
+            result = response(
+                instance, "failed", "retirement incomplete; reservation retained", changed
+            )
+        return self._audited(
+            actor, {"operation": "retire-staging", "generation": None, "images": {}}, result
+        )
+
     def cleanup(self, actor):
         try:
             self.policy.authorize(actor, admin=True)
@@ -276,7 +376,7 @@ class Controller:
 
     def _routes(self, state, omit=None):
         return [
-            route
+            {**route, "application": record["application"], "environment": record["environment"]}
             for key, record in state["instances"].items()
             if key != omit and record["status"] == "ready"
             for route in record.get("routes", [])
@@ -290,6 +390,12 @@ class Controller:
             raise Refused("ambiguous runtime objects require operator reconciliation")
         if admission and set(inventory) - set(state["instances"]):
             raise Refused("untracked runtime objects block admission")
+        if admission and any(
+            state["instances"].get(instance, {}).get("status") == "retired"
+            and any(resource["kind"] != "volume" for resource in entry.get("resources", []))
+            for instance, entry in inventory.items()
+        ):
+            raise Refused("retired instance has compute objects; operator reconciliation required")
         return inventory
 
     def _free_disk_gib(self):
@@ -349,13 +455,15 @@ class Controller:
     def _apply(self, state, payload, actor, target, plan):
         inventory = self._inventory(state, admission=True)
         old = state["instances"].get(target.instance)
+        if old and old["status"] in ("retiring", "retired"):
+            raise Refused("retired staging requires administrator recovery")
         self._require_newer_than_tombstone(state, payload, target.instance)
         if old and payload["generation"] < old["generation"]:
             raise Refused("stale delivery generation")
         delivery = self._delivery(payload, state, target.instance)
         if old and payload["generation"] == old["generation"]:
             return self._repeated_delivery(old, delivery, target.instance, inventory, plan)
-        self._admit(state, target, delivery, old)
+        reserved = self._admit(state, target, delivery, old, inventory)
         if plan:
             return response(
                 target.instance,
@@ -373,7 +481,7 @@ class Controller:
             backup = self._backup(state, target)
             if backup["status"] != "backed_up":
                 return backup
-        return self._deliver(state, payload, actor, target, delivery, old)
+        return self._deliver(state, payload, actor, target, delivery, old, reserved)
 
     def _require_newer_than_tombstone(self, state, payload, instance):
         tombstone = state["tombstones"].get(instance)
@@ -398,7 +506,13 @@ class Controller:
 
     def _repeated_delivery(self, old, delivery, instance, inventory, plan):
         if old.get("fingerprint") != delivery.fingerprint:
-            raise Refused("a changed delivery requires a newer generation")
+            legacy = copy.deepcopy(delivery.compose)
+            for service in legacy["services"].values():
+                service.pop("cpu_shares", None)
+            if old.get("fingerprint") != delivery_fingerprint(
+                legacy, delivery.routes, delivery.storage_budget_gib
+            ):
+                raise Refused("a changed delivery requires a newer generation")
         if old["status"] != "ready" or instance not in inventory:
             raise Refused("incomplete delivery requires a newer generation")
         return response(
@@ -409,20 +523,32 @@ class Controller:
             http_status=old.get("http_status", "unconfigured"),
         )
 
-    def _admit(self, state, target, delivery, old):
-        others = [
-            record
+    def _admit(self, state, target, delivery, old, inventory):
+        active = [
+            {
+                **record,
+                "budget": reservation(
+                    {"services": {}}, record, inventory.get(key, {}).get("resources", [])
+                ),
+            }
             for key, record in state["instances"].items()
-            if key != target.instance and record["environment"] == target.environment
+            if key != target.instance and record["status"] != "retired"
         ]
-        reserved = reservation(delivery.budget, old)
+        others = [record for record in active if record["environment"] == target.environment]
+        reserved = reservation(
+            delivery.compose, old, inventory.get(target.instance, {}).get("resources", [])
+        )
         if target.environment == "preview":
             self._admit_preview(others, delivery.budget, old)
         self._require_environment_budget(target.environment, others, reserved)
+        total = reserved["memory_mib"] + sum(record["budget"]["memory_mib"] for record in active)
+        if total > self.policy["maximum_total_memory_mib"]:
+            raise Refused("aggregate host memory budget exceeded")
         self._require_memory_margin(reserved, old)
         self._require_disk_reserve(
             state, target.instance, reserved_storage(delivery.storage_budget_gib, old)
         )
+        return reserved
 
     def _admit_preview(self, others, budget, old):
         limit = self.policy["preview_instance_budget"]
@@ -465,7 +591,7 @@ class Controller:
         if disk.f_files and disk.f_favail / disk.f_files < self.policy["minimum_free_inode_ratio"]:
             raise Refused("inode reserve prevents admission")
 
-    def _deliver(self, state, payload, actor, target, delivery, old):
+    def _deliver(self, state, payload, actor, target, delivery, old, reserved):
         path = self._path(target.application, target.suffix)
         private_directory(path.parent)
         if path.exists():
@@ -478,7 +604,7 @@ class Controller:
             "generation": payload["generation"],
             "fingerprint": delivery.fingerprint,
             "images": delivery.images,
-            "budget": reservation(delivery.budget, old),
+            "budget": reserved,
             "storage_budget_gib": reserved_storage(delivery.storage_budget_gib, old),
             "routes": delivery.routes,
             "status": "preparing",
@@ -492,7 +618,10 @@ class Controller:
         self.registry.save(state)  # Reservation exists before any Docker or file mutation.
         try:
             atomic_json(path, delivery.compose)
-            routes = self._routes(state, target.instance) + delivery.routes
+            routes = self._routes(state, target.instance) + [
+                {**route, "application": target.application, "environment": target.environment}
+                for route in delivery.routes
+            ]
             result = self.runtime.apply(target.instance, path, routes, delivery.storage_budget_gib)
         except Exception:
             record["status"] = "failed"

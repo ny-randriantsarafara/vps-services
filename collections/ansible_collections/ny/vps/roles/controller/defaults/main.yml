@@ -16,3 +16,5 @@ controller_onboarding_guards: {}
 controller_instance_private_paths: {}
 # Exact instance -> fixed administrator-owned executable argv.
 controller_backup_commands: {}
+
+controller_maximum_total_memory_mib: 6144

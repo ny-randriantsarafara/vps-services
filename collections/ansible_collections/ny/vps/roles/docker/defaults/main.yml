@@ -1,5 +1,5 @@
 ---
-# Versions read from download.docker.com (dists/trixie/stable) on 2026-10-11.
-docker_engine_version: "29.8.2"
-docker_compose_version: "5.5.1"
-docker_containerd_package_version: "2.3.6-1~debian.13~trixie"
+# Maintenance set verified at download.docker.com (dists/trixie/stable) on 2026-11-04.
+docker_engine_version: "29.9.3"
+docker_compose_version: "5.7.0"
+docker_containerd_package_version: "2.4.2-3~debian.13~trixie"
