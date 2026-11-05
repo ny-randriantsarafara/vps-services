@@ -2,7 +2,10 @@ import fcntl
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +15,7 @@ from vps_platform.cli import main
 from vps_platform.controller import Controller
 from vps_platform.policy import Policy, Refused
 from vps_platform.runtime import Runtime, RuntimeFailure
+from vps_platform.state import Registry
 
 TRUE_COMMAND = str(Path("/usr/bin/true").resolve())
 FALSE_COMMAND = str(Path("/usr/bin/false").resolve())
@@ -89,6 +93,36 @@ class BackupControllerTests(unittest.TestCase):
             "private-backup-provider-secret", (self.root / "state/audit.jsonl").read_text()
         )
 
+    def test_failed_update_can_recover_with_a_fresh_backup(self):
+        self.call()
+        self.runtime.fail_apply = True
+        self.assertEqual(self.call(generation=2)["status"], "failed")
+        self.runtime.fail_apply = False
+        self.assertEqual(self.call(generation=3)["status"], "ready")
+        self.assertEqual(len(self.runtime.backup_commands), 2)
+
+    def test_failed_initial_delivery_with_owned_resources_is_backed_up_before_retry(self):
+        self.runtime.fail_apply = True
+        self.assertEqual(self.call()["status"], "failed")
+        self.runtime.fail_apply = False
+        self.assertEqual(self.call(generation=2)["status"], "ready")
+        self.assertEqual(self.runtime.backup_commands, [self.command])
+
+    def test_failed_initial_delivery_without_resources_can_retry(self):
+        with patch.object(self.runtime, "apply", side_effect=RuntimeError("pull failed")):
+            self.assertEqual(self.call()["status"], "failed")
+        self.assertEqual(self.runtime.inventory(), {})
+        self.assertEqual(self.call(generation=2)["status"], "ready")
+        self.assertEqual(self.runtime.backup_commands, [])
+
+    def test_missing_resources_after_success_do_not_skip_backup(self):
+        self.call()
+        state = self.controller.registry.load()
+        state["instances"]["alpha-pr-1"]["status"] = "failed"
+        self.controller.registry.save(state)
+        self.runtime.path.write_text("{}")
+        self.assertEqual(self.call(generation=2)["status"], "refused")
+
     def test_plan_status_and_repeated_generation_never_back_up(self):
         self.call()
         self.assertEqual(self.call()["status"], "ready")
@@ -117,7 +151,7 @@ class BackupControllerTests(unittest.TestCase):
     def test_backup_requires_configured_command_and_healthy_owned_instance(self):
         self.call()
         state = self.controller.registry.load()
-        state["instances"]["alpha-pr-1"]["status"] = "failed"
+        state["instances"]["alpha-pr-1"]["status"] = "retired"
         self.controller.registry.save(state)
         self.assertEqual(self.call("backup")["status"], "refused")
         state["instances"]["alpha-pr-1"]["status"] = "ready"
@@ -145,6 +179,11 @@ class BackupControllerTests(unittest.TestCase):
 
 
 class BackupRuntimeTests(unittest.TestCase):
+    def coordinated_backup(self, runtime, command):
+        with tempfile.TemporaryDirectory() as state:
+            with Registry(state, 1).locked():
+                runtime.backup("alpha-prod", command)
+
     def test_fixed_root_command_runs_but_mismatched_or_user_writable_command_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -154,15 +193,15 @@ class BackupRuntimeTests(unittest.TestCase):
                 runtime = Runtime(data)
             except Refused as error:
                 self.fail(f"Administrator backup configuration was rejected: {error}")
-            runtime.backup("alpha-prod", [TRUE_COMMAND])
+            self.coordinated_backup(runtime, [TRUE_COMMAND])
             with self.assertRaises(RuntimeFailure):
-                runtime.backup("alpha-prod", [FALSE_COMMAND])
+                self.coordinated_backup(runtime, [FALSE_COMMAND])
             script = root / "untrusted.sh"
             script.write_text("#!/bin/sh\nexit 0\n")
             script.chmod(0o777)
             runtime.policy.data["backup_commands"]["alpha-prod"] = [str(script)]
             with self.assertRaises(RuntimeFailure):
-                runtime.backup("alpha-prod", [str(script)])
+                self.coordinated_backup(runtime, [str(script)])
 
     def test_failing_and_timed_out_commands_do_not_report_a_backup(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -177,7 +216,55 @@ class BackupRuntimeTests(unittest.TestCase):
                     patch("vps_platform.runtime.BACKUP_TIMEOUT_SECONDS", 0.01, create=True),
                     self.assertRaises(RuntimeFailure),
                 ):
-                    runtime.backup("alpha-prod", command)
+                    self.coordinated_backup(runtime, command)
+
+    def test_backup_keeps_coordination_after_controller_termination(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ready, done = root / "ready", root / "done"
+            executable = str(Path(sys.executable).resolve())
+            # Use a root-owned interpreter as the administrator's fixed executable.
+            executable = str(Path("/usr/bin/python3").resolve())
+            child = (
+                "from pathlib import Path; import time; "
+                f"Path({str(ready)!r}).touch(); time.sleep(0.8); Path({str(done)!r}).touch()"
+            )
+            data = policy(root)
+            data["backup_commands"] = {"alpha-prod": [executable, "-c", child]}
+            source = str(
+                Path(__file__).resolve().parents[1]
+                / "collections/ansible_collections/ny/vps/roles/controller/files"
+            )
+            parent = (
+                f"import sys; sys.path.insert(0, {source!r}); "
+                "from vps_platform.state import Registry; from vps_platform.runtime import Runtime; "
+                f"registry=Registry({str(root / 'state')!r}, 2); "
+                f"runtime=Runtime({data!r}); "
+                "lock=registry.locked(); lock.__enter__(); "
+                f"runtime.backup('alpha-prod', {data['backup_commands']['alpha-prod']!r})"
+            )
+            process = subprocess.Popen([sys.executable, "-c", parent])
+            try:
+                deadline = time.monotonic() + 3
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(ready.exists(), "backup subprocess did not start")
+                process.terminate()
+                process.wait(timeout=3)
+                descriptor = os.open(root / "state/controller.lock", os.O_RDWR)
+                try:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    os.close(descriptor)
+                while not done.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(done.exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                time.sleep(0.9)  # Let the known disposable orphan finish before temp cleanup.
 
     def test_policy_refuses_arbitrary_instance_and_non_literal_argv(self):
         for instance, command in [

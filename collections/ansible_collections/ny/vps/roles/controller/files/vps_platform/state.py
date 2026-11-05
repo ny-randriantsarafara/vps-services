@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import time
+from contextvars import ContextVar
 from pathlib import Path
 
 from .policy import Refused
@@ -63,6 +64,9 @@ def append_json_line(path, data):
         os.close(fd)
 
 
+BACKUP_LOCK_FD = ContextVar("backup_lock_fd", default=None)
+
+
 class Registry:
     def __init__(self, directory, lock_timeout_seconds):
         self.directory = Path(directory)
@@ -77,7 +81,11 @@ class Registry:
         )
         try:
             self._acquire(fd)
-            yield
+            token = BACKUP_LOCK_FD.set(fd)
+            try:
+                yield fd
+            finally:
+                BACKUP_LOCK_FD.reset(token)
         finally:
             os.close(fd)
 

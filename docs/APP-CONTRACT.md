@@ -155,7 +155,7 @@ Third preview refusal:
 
 ## Backups
 
-The administrator configures `backup_commands` for exact instances. Each value is a fixed executable argv installed and owned by root, with no writable or symlinked path component. A delivery cannot set the command or choose its arguments. A configured instance can request `backup` through its own deploy identity; administrators can run `vpsctl backups run --instance <name>`. The instance must be ready and its runtime must be owned.
+The administrator configures `backup_commands` for exact instances. Each value is a fixed executable argv installed and owned by root, with no writable or symlinked path component. A delivery cannot set the command or choose its arguments. A configured instance can request `backup` through its own deploy identity; administrators can run `vpsctl backups run --instance <name>`. The instance must have an active ready, failed or preparing reservation and owned runtime resources. Failed deliveries can be backed up before a corrected retry. An empty failed initial delivery may retry without backup only when it was never ready and no owned resources exist.
 
 Backups use the controller lock, including the six-hour timer. A real update of an existing configured instance runs its backup before changing the Compose file or registry generation. If it fails, the existing delivery is retained and the update fails. First deployment, read-only operations, plans and replay of a current generation do not run a backup. A backup command must restart its paused service before it uploads; the process has a 30-minute limit and its output is suppressed. Successful requests return `backed_up`.
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, stop_grace_seconds
 from .policy import Policy
-from .state import replace_json
+from .state import BACKUP_LOCK_FD, replace_json
 
 MEMINFO = Path("/proc/meminfo")
 GIB = 1073741824
@@ -252,7 +252,12 @@ class Runtime:
                 raise RuntimeFailure("backup executable is unavailable")
         except OSError:
             raise RuntimeFailure("backup executable is unavailable") from None
-        self._run(command, timeout=BACKUP_TIMEOUT_SECONDS, max_output=MAX_LOG_BYTES)
+        lock_fd = BACKUP_LOCK_FD.get()
+        if lock_fd is None:
+            raise RuntimeFailure("backup requires the controller lock")
+        self._run(
+            command, timeout=BACKUP_TIMEOUT_SECONDS, max_output=MAX_LOG_BYTES, lock_fd=lock_fd
+        )
 
     def inventory(self):
         result = {}
@@ -315,10 +320,14 @@ class Runtime:
     def _disk_free_gib(self):
         return shutil.disk_usage(self.policy["apps_dir"]).free / GIB
 
-    def _run(self, argv, timeout=180, max_output=MAX_OUTPUT_BYTES):
+    def _run(self, argv, timeout=180, max_output=MAX_OUTPUT_BYTES, lock_fd=None):
         # Files bound memory usage and are unlinked immediately, even on timeout.
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             try:
+                options = {"pass_fds": (lock_fd,)} if lock_fd is not None else {}
+                environment = dict(COMMAND_ENVIRONMENT)
+                if lock_fd is not None:
+                    environment["VPS_BACKUP_LOCK_FD"] = str(lock_fd)
                 completed = self.runner(
                     argv,
                     stdin=subprocess.DEVNULL,
@@ -326,8 +335,9 @@ class Runtime:
                     stderr=errors,
                     timeout=timeout,
                     check=False,
-                    env=COMMAND_ENVIRONMENT,
+                    env=environment,
                     cwd="/",
+                    **options,
                 )
                 if completed.returncode:
                     raise RuntimeFailure("host command failed")
