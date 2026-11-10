@@ -19,9 +19,9 @@ vps_domain: apps.nyhasinavalona.com
 
 # Global cap, all applications combined.
 vps_preview_limit: 1
-# 5,504 MiB production + one 1,024 MiB preview. Host checked 05/11/2026:
-# 7,757.9 MiB physical RAM, 5,793.4 MiB available; 1,229.9 MiB outside this cap.
-vps_maximum_total_memory_mib: 6528
+# 5,824 MiB production + one 1,024 MiB preview. Host checked 10/11/2026:
+# 7,757 MiB physical RAM, 5,299 MiB available; 909 MiB outside this cap.
+vps_maximum_total_memory_mib: 6848
 # Collector is enabled separately after private Grafana Cloud credentials are supplied.
 vps_observability_enabled: false
 
@@ -33,8 +33,10 @@ vps_observability_enabled: false
 
 # Vaultwarden (05/11/2026): add 0.25 vCPU / 384 MiB to the current prod allocations.
 # Live host check: 7,757 MiB RAM, 5,777 MiB available; other app limits unchanged.
+# OBS multistream (10/11/2026): add 0.5 vCPU / 320 MiB, about twice the console and
+# relay peaks measured while relaying in its tests; other app limits unchanged.
 vps_budgets:
-  prod: {cpus: 3.35, memory_mib: 5504}
+  prod: {cpus: 3.85, memory_mib: 5824}
   staging: {cpus: 2, memory_mib: 2048}
   preview: {cpus: 1, memory_mib: 1024}
 vps_preview_instance_budget: {cpus: 1, memory_mib: 1024}
@@ -76,6 +78,11 @@ vps_deploy_accounts:
     environments: [prod]
     public_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO5UpcZKsBJqd9YEtjA8X7pjEctpRIVzuIU9NMpWh+I5 github-actions@vaultwarden-prod"
+  obs-multistream-prod:
+    application: obs-multistream
+    environments: [prod]
+    public_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO29sB817i80dP3qCd3mLv2sPlDdF1E5ncEZ0X3uOHbA github-actions@obs-multistream-prod"
 
 # Exact administrator alias; applications cannot claim another name.
 # The portfolio public site stays on GitHub Pages: only its API and CMS are on the VPS.
@@ -83,6 +90,7 @@ vps_instance_hostnames:
   vaultwarden-prod: [vault.nyhasinavalona.com]
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
   portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
+  obs-multistream-prod: [streaming.nyhasinavalona.com]
 # Closed until the owner has created their account via SSH tunnel.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}
