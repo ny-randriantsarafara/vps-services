@@ -348,6 +348,19 @@ class ComposeTests(unittest.TestCase):
             self.render()
         self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
 
+    def test_rtmps_route_for_another_instances_hostname_is_refused(self):
+        self.policy.data["domain"] = "apps.example.net"
+        ingest = "ingest.apps.example.net"
+        self.policy.data["instance_rtmps_hostnames"] = {"beta-prod": [ingest]}
+        relay = copy.deepcopy(self.payload["compose"]["services"]["web"])
+        self.payload["compose"]["services"]["relay"] = relay
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
+
     def test_service_logs_are_bounded_and_swap_cannot_be_unlimited(self):
         compose, _, _ = self.render()
         self.assertEqual(

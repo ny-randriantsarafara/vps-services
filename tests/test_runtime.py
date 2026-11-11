@@ -26,6 +26,7 @@ except ImportError:
     caddy_configuration = None
 
 STORAGE_BUDGET_GIB = 2
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "caddy_configuration"
 
 
 class DockerBoundary:
@@ -531,18 +532,42 @@ class RuntimeTests(unittest.TestCase):
         result = self.runtime.apply("alpha-pr-1", self.path, routes, STORAGE_BUDGET_GIB)
         self.assertEqual(result["http_status"], "unreachable")
 
-    def test_caddy_configuration_without_rtmps_is_unchanged(self):
-        route = {
-            "hostname": "alpha-pr-1.apps.example.net",
-            "service": "web",
-            "port": 3000,
-            "upstream": "127.0.0.1:20000",
-            "application": "alpha",
-            "environment": "preview",
+    def _caddy_bytes(self, config):
+        return json.dumps(config, separators=(",", ":"), allow_nan=False).encode()
+
+    def test_https_only_caddy_configuration_matches_b2c8644_goldens(self):
+        cases = {
+            "multi_routes.json": (
+                "/run/caddy/admin.sock",
+                [
+                    {
+                        "hostname": "alpha-pr-1.apps.example.net",
+                        "upstream": "127.0.0.1:20000",
+                        "application": "alpha",
+                        "environment": "preview",
+                    },
+                    {
+                        "hostname": "cms.alpha-pr-1.apps.example.net",
+                        "upstream": "127.0.0.1:20001",
+                        "application": "alpha",
+                        "environment": "preview",
+                    },
+                ],
+                {},
+                {},
+            ),
+            "guard_and_private_paths.json": (
+                "/run/caddy.sock",
+                [{"hostname": "home-assistant.example.com", "upstream": "127.0.0.1:20000"}],
+                {"home-assistant.example.com": True},
+                {"home-assistant.example.com": ["/admin", "/admin/*"]},
+            ),
         }
-        config = caddy_configuration("/run/caddy/admin.sock", [route])
-        self.assertNotIn("tls", config["apps"])
-        self.assertNotIn("listener_wrappers", config["apps"]["http"]["servers"]["platform"])
+        for fixture, arguments in cases.items():
+            with self.subTest(fixture=fixture):
+                expected = (FIXTURES / fixture).read_bytes().rstrip(b"\n")
+                config = caddy_configuration(*arguments)
+                self.assertEqual(self._caddy_bytes(config), expected)
 
     def test_caddy_configuration_adds_layer4_and_tls_automation_for_rtmps(self):
         https_route = {

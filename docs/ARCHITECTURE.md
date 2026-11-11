@@ -84,6 +84,10 @@ Client --TLS SNI ingest.example--> Caddy :443
 
 Nothing new is published on the internet: RTMPS uses the same `:443` listener and loopback ports as HTTPS routes.
 
+The layer4 wrapper only accepts TLS when the client SNI is an RTMPS route name. Every other connection on port 443, including ACME TLS-ALPN for existing HTTPS names, goes to the normal HTTPS stack. Plain HTTP on port 80 is unchanged.
+
+Caddy issues certificates for RTMPS names like other managed names. HTTP-01 on port 80 still works because Caddy answers ACME HTTP challenges before application routes, and the platform keeps port 80 for automatic HTTPS. TLS-ALPN-01 on 443 works for an RTMPS SNI because the layer4 TLS handler uses Caddy's TLS connection policies, which advertise `acme-tls/1` during handshake.
+
 Caddy serves applications on `:443` only. Port 80 stays for automatic HTTPS: ACME challenges and redirect to HTTPS. No application is served in cleartext.
 
 Docker shares the VPS kernel: this model suits trusted applications and contributors, not running hostile PR code.

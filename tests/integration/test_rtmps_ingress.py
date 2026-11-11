@@ -25,16 +25,22 @@ CURL_IMAGE = (
 DEBIAN_IMAGE = "debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
 
 RTMP_FIXTURE = """
+import os
 import socket
 import struct
-counts = {"connections": 0}
+COUNTER = "/tmp/rtmp-connections"
+connections = 0
+with open(COUNTER, "w") as stream:
+    stream.write("0")
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 listener.bind(("0.0.0.0", 1935))
 listener.listen(8)
 while True:
     conn, _ = listener.accept()
-    counts["connections"] += 1
+    connections += 1
+    with open(COUNTER, "w") as stream:
+        stream.write(str(connections))
     try:
         conn.recv(4096)
         s0 = bytes([0x03])
@@ -65,6 +71,15 @@ def docker(arguments, check=True, timeout=120):
         check=check,
         timeout=timeout,
     )
+
+
+def rtmp_backend_connections(fixture_name):
+    for _ in range(20):
+        result = docker(["exec", fixture_name, "cat", "/tmp/rtmp-connections"], check=False)
+        if result.returncode == 0 and result.stdout.strip().isdigit():
+            return int(result.stdout.strip())
+        time.sleep(0.1)
+    raise AssertionError("RTMP fixture connection counter unavailable")
 
 
 @unittest.skipUnless(
@@ -250,6 +265,7 @@ class RtmpsIngressIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(unknown.stdout.strip(), "404")
 
+                backend_before = rtmp_backend_connections(rtmp_fixture)
                 plain = docker(
                     [
                         "run",
@@ -259,13 +275,31 @@ class RtmpsIngressIntegrationTests(unittest.TestCase):
                         PYTHON_IMAGE,
                         "python",
                         "-c",
-                        "import socket;s=socket.create_connection(('"
-                        + caddy_ip
-                        + "',443),3);s.sendall(b'PLAIN');s.close()",
+                        (
+                            "import socket,struct,time;"
+                            "c0=bytes([3]);"
+                            "c1=struct.pack('>I',0)+bytes(1528);"
+                            "s=socket.create_connection(('" + caddy_ip + "',443),5);"
+                            "s.sendall(c0+c1);"
+                            "time.sleep(0.5);"
+                            "s.close()"
+                        ),
                     ],
                     check=False,
+                    timeout=30,
                 )
                 self.assertEqual(plain.returncode, 0)
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    if rtmp_backend_connections(rtmp_fixture) == backend_before:
+                        break
+                    time.sleep(0.1)
+                else:
+                    backend_after = rtmp_backend_connections(rtmp_fixture)
+                    self.fail(
+                        "plain TCP on 443 reached the RTMP backend: "
+                        f"{backend_before} -> {backend_after}"
+                    )
         finally:
             docker(["rm", "-f", caddy, http_fixture, rtmp_fixture], check=False)
             docker(["network", "rm", network], check=False)
