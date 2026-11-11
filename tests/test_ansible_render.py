@@ -198,5 +198,9 @@ class ControllerCaddyGateTests(unittest.TestCase):
         self.assertIn("not installed yet", completed.stdout)
 
     def test_executable_binary_passes_the_gate(self):
-        completed = self.run_gate("-e", "controller_caddy_binary=/bin/sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "caddy"
+            binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            binary.chmod(0o755)
+            completed = self.run_gate("-e", f"controller_caddy_binary={binary}")
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
