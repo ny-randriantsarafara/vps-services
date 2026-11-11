@@ -173,7 +173,9 @@ The ingress role keeps the official `caddy` Debian package installed and held fo
 
 `platform.yml` stages the binary, verifies the checksum, promotes it, then renders the systemd drop-in and restarts Caddy. A failed checksum or a missing build artifact blocks the restart. The swap restarts every site on the VPS.
 
-To roll back to the packaged binary without caddy-l4, edit `/etc/systemd/system/caddy.service.d/vps-platform.conf` so `ExecStart` and `ExecReload` use `/usr/bin/caddy` again, then run `sudo systemctl daemon-reload && sudo systemctl restart caddy`. Re-apply the ingress role to restore the custom binary when ready.
+`make plan` checks the controller build artifact and its checksum, but it does not copy or verify the remote binary. Only a real apply installs `/usr/local/bin/caddy` and runs the running-process assertions.
+
+To roll back to the packaged binary without caddy-l4, edit `/etc/systemd/system/caddy.service.d/vps-platform.conf` so `ExecStart` and `ExecReload` use `/usr/bin/caddy` again, then run `sudo systemctl daemon-reload && sudo systemctl restart caddy`. That emergency change lasts only until the next ingress apply: `make platform` re-renders the drop-in and reinstalls `/usr/local/bin/caddy`. While rolled back, do not run `make platform` until the cause is fixed, or restore the pin and rebuild. HTTPS sites keep working on `/usr/bin/caddy`; RTMPS publishing breaks because the controller validates configs with the caddy-l4 binary and refuses `listener_wrappers`. Re-apply the ingress role to restore the custom binary when ready.
 
 Run `make platform` before any application delivers an RTMPS route. That pass installs the caddy-l4 binary and restarts Caddy for every site. A delivery with `protocol: rtmps` against a controller that does not support RTMPS is refused.
 

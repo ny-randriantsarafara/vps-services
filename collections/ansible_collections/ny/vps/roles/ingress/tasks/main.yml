@@ -66,10 +66,24 @@
 - name: Check the built Caddy binary on the controller
   ansible.builtin.stat:
     path: "{{ ingress_caddy_controller_artifact }}"
+    checksum_algorithm: sha256
+    get_checksum: true
   delegate_to: localhost
   become: false
   connection: local
   register: ingress_caddy_controller_artifact_state
+  check_mode: false
+
+- name: Require a built Caddy binary that matches the pin on the controller
+  ansible.builtin.assert:
+    that:
+      - ingress_caddy_controller_artifact_state.stat.exists
+      - ingress_caddy_controller_artifact_state.stat.isreg
+      - ingress_caddy_controller_artifact_state.stat.checksum == ingress_caddy_sha256
+    fail_msg: Run make caddy or scripts/build-caddy.sh on the controller before apply.
+  delegate_to: localhost
+  become: false
+  connection: local
   check_mode: false
 
 - name: Install the custom Caddy binary
@@ -92,6 +106,11 @@
               - ingress_caddy_controller_artifact_state.stat.exists
               - ingress_caddy_controller_artifact_state.stat.isreg
             fail_msg: Run make caddy or scripts/build-caddy.sh on the controller before apply.
+
+        - name: Remove a leftover staged Caddy binary
+          ansible.builtin.file:
+            path: "{{ ingress_caddy_binary }}.new"
+            state: absent
 
         - name: Stage the custom Caddy binary
           ansible.builtin.copy:
@@ -123,6 +142,11 @@
             owner: root
             group: root
           notify: Restart Caddy
+
+        - name: Remove the staged Caddy binary after promotion
+          ansible.builtin.file:
+            path: "{{ ingress_caddy_binary }}.new"
+            state: absent
 
 - name: Create the Caddy unit drop-in directory
   ansible.builtin.file:
