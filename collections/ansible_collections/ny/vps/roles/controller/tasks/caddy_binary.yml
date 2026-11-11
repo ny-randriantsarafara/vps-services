@@ -1,0 +1,30 @@
+---
+- name: Read the Caddy binary used for configuration validation
+  ansible.builtin.stat:
+    path: "{{ controller_caddy_binary }}"
+  register: controller_caddy_binary_state
+  failed_when: false
+
+- name: Require the pinned Caddy binary before updating policy
+  ansible.builtin.assert:
+    that:
+      - controller_caddy_binary_state.stat.exists
+      - controller_caddy_binary_state.stat.isreg
+      - controller_caddy_binary_state.stat.executable
+    fail_msg: >-
+      The pinned Caddy binary at {{ controller_caddy_binary }} is missing or not executable.
+      Run make platform on this host first so the ingress role installs it.
+  when: not ansible_check_mode
+
+- name: Warn during plan when the pinned Caddy binary is not installed yet
+  ansible.builtin.debug:
+    msg: >-
+      The pinned Caddy binary at {{ controller_caddy_binary }} is not installed yet.
+      vpsctl will refuse to publish routes until make platform installs it.
+  when:
+    - ansible_check_mode
+    - not (
+        controller_caddy_binary_state.stat.exists | default(false)
+        and controller_caddy_binary_state.stat.isreg | default(false)
+        and controller_caddy_binary_state.stat.executable | default(false)
+      )

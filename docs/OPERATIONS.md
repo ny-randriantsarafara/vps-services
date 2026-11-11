@@ -67,7 +67,7 @@ Automatic OVH backup stays enabled. Do not restore it to fix access: it can rein
 
 ## 5. Platform
 
-To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
+To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. The first time the policy names the pinned Caddy at `/usr/local/bin/caddy`, run `make platform` (not `make controller` alone) so ingress installs that binary before `vpsctl` validates configs. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
 
 ```bash
 make plan TARGET=vps-d9d9aca9       # --check --diff simulation
