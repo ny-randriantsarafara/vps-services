@@ -175,6 +175,8 @@ The ingress role keeps the official `caddy` Debian package installed and held fo
 
 To roll back to the packaged binary without caddy-l4, edit `/etc/systemd/system/caddy.service.d/vps-platform.conf` so `ExecStart` and `ExecReload` use `/usr/bin/caddy` again, then run `sudo systemctl daemon-reload && sudo systemctl restart caddy`. Re-apply the ingress role to restore the custom binary when ready.
 
+Run `make platform` before any application delivers an RTMPS route. That pass installs the caddy-l4 binary and restarts Caddy for every site. A delivery with `protocol: rtmps` against a controller that does not support RTMPS is refused.
+
 - Applications are served on `:443` only. Port 80 stays for Caddy automatic HTTPS: ACME challenges and 308 redirect to HTTPS.
 - Instance domain: `apps.nyhasinavalona.com`. Cloudflare DNS carries `*.apps` as A and AAAA to the VPS, **without proxy**: Caddy obtains its own certificate per name on first route load. The wildcard also covers secondary names (`cms.<instance>.apps…`).
 - An unknown name gets a neutral 404.

@@ -36,7 +36,9 @@ options:
     description: Rendered Compose services and volumes accepted by the controller.
     type: dict
   routes:
-    description: HTTP routes, each with C(hostname), C(service) and C(port).
+    description: >-
+      Public routes, each with C(hostname), C(service) and C(port). Optional C(protocol) is
+      C(https) (default) or C(rtmps) on an administrator-granted RTMPS hostname.
     type: list
     elements: dict
   storage_budget_gib:

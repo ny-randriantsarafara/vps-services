@@ -91,6 +91,9 @@ vps_instance_hostnames:
   home-assistant-prod: [home-assistant.nyhasinavalona.com]
   portfolio-prod: [api.nyhasinavalona.com, cms.nyhasinavalona.com]
   obs-multistream-prod: [streaming.nyhasinavalona.com]
+# OBS sends its Program over RTMPS to this name.
+vps_instance_rtmps_hostnames:
+  obs-multistream-prod: [ingest.nyhasinavalona.com]
 # Closed until the owner has created their account via SSH tunnel.
 vps_onboarding_guards:
   home-assistant.nyhasinavalona.com: {path: /api/onboarding, step: user}
