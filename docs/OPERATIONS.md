@@ -169,6 +169,12 @@ Lowering `vps_preview_limit` below the current preview count blocks creation wit
 
 ## 10. Caddy
 
+The ingress role keeps the official `caddy` Debian package installed and held for the `caddy` user, unit and directories. It runs a custom build at `/usr/local/bin/caddy` (Caddy `2.11.7` with caddy-l4 `0.1.2`). Build it on the operator machine with `scripts/build-caddy.sh` or `make caddy`; `make plan` and `make platform` build it first. CI runs the same script on `ubuntu-latest`. The SHA-256 is pinned in the ingress role defaults; change a pin only after reproducible builds agree.
+
+`platform.yml` stages the binary, verifies the checksum, promotes it, then renders the systemd drop-in and restarts Caddy. A failed checksum or a missing build artifact blocks the restart. The swap restarts every site on the VPS.
+
+To roll back to the packaged binary without caddy-l4, edit `/etc/systemd/system/caddy.service.d/vps-platform.conf` so `ExecStart` and `ExecReload` use `/usr/bin/caddy` again, then run `sudo systemctl daemon-reload && sudo systemctl restart caddy`. Re-apply the ingress role to restore the custom binary when ready.
+
 - Applications are served on `:443` only. Port 80 stays for Caddy automatic HTTPS: ACME challenges and 308 redirect to HTTPS.
 - Instance domain: `apps.nyhasinavalona.com`. Cloudflare DNS carries `*.apps` as A and AAAA to the VPS, **without proxy**: Caddy obtains its own certificate per name on first route load. The wildcard also covers secondary names (`cms.<instance>.apps…`).
 - An unknown name gets a neutral 404.

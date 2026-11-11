@@ -7,6 +7,7 @@
 | Step | Command |
 | --- | --- |
 | Tools | `make setup`: `.venv` and `requirements-dev.lock`, installed with `--require-hashes` |
+| Caddy build | `scripts/build-caddy.sh` in a parallel job (pinned Go container, SHA-256 gate) |
 | Gates | `make check` |
 
 `make check` runs `scripts/check.sh`:

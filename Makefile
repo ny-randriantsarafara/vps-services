@@ -1,4 +1,4 @@
-.PHONY: help setup check test integration collection plan bootstrap platform controller register-app observability-check http-metrics-check monitoring-rules-check observability
+.PHONY: help setup check test integration collection caddy plan bootstrap platform controller register-app observability-check http-metrics-check monitoring-rules-check observability
 .DEFAULT_GOAL := help
 
 PYTHON ?= python3
@@ -36,7 +36,10 @@ observability-check: ## Opt-in official Alloy validation and synthetic log expor
 collection: ## Build the ny.vps collection into dist/
 	$(VENV)/bin/ansible-galaxy collection build collections/ansible_collections/ny/vps --output-path dist --force
 
-plan: ## Simulate platform.yml on TARGET (--check --diff), no mutation
+caddy: ## Build the pinned Caddy binary with caddy-l4 into dist/
+	scripts/build-caddy.sh
+
+plan: caddy ## Simulate platform.yml on TARGET (--check --diff), no mutation
 	$(require_target)
 	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/platform.yml --limit '$(TARGET)' --check --diff
 
@@ -44,7 +47,7 @@ bootstrap: ## Create the administrator and harden SSH on TARGET (docs/OPERATIONS
 	$(require_target)
 	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/bootstrap.yml --limit '$(TARGET)'
 
-platform: ## Apply the platform on TARGET without starting an application
+platform: caddy ## Apply the platform on TARGET without starting an application
 	$(require_target)
 	$(ANSIBLE_PLAYBOOK) -i $(INVENTORY) playbooks/platform.yml --limit '$(TARGET)'
 

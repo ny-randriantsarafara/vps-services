@@ -20,7 +20,7 @@ ansible-playbook (ny.vps.app)                          sudo -n /usr/local/sbin/v
 | SSH | `ny.vps.ssh` | Drop-in validated with `sshd -t`: no root, keys only, no interactive authentication |
 | Firewall | `ny.vps.firewall` | `vps-firewall.service`: `VPS-INPUT` and `DOCKER-USER` chains, IPv4 and IPv6, ports 22/80/443 |
 | Docker | `ny.vps.docker` | Docker Engine 29.9.3, Compose 5.7.0, signed APT repo, `json-file` rotation 10 MiB × 3 |
-| Ingress | `ny.vps.ingress` | Caddy 2.11.7, administration via `/run/caddy/admin.sock`, config `/etc/caddy/vps-platform.json` |
+| Ingress | `ny.vps.ingress` | Caddy 2.11.7 with caddy-l4 v0.1.2 (`/usr/local/bin/caddy`, SHA-256 pinned), APT package held for the unit; administration via `/run/caddy/admin.sock`, config `/etc/caddy/vps-platform.json` |
 | Controller | `ny.vps.controller` | `vpsctl`, policy `/etc/vps-platform/policy.json`, deploy accounts, maintenance timer |
 | Observability (opt-in) | `ny.vps.observability` | Official Alloy 1.21.3, private credentials, loopback diagnostics, bounded best-effort telemetry to personal Grafana Cloud |
 | Application | `ny.vps.app` | Used by application repos; not run in `platform.yml` |

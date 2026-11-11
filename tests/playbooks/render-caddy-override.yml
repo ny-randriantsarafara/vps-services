@@ -1,0 +1,15 @@
+---
+- name: Render the Caddy unit drop-in of the ingress role
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load the ingress role defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/ingress/defaults/main.yml"
+
+    - name: Write the unit drop-in
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/ingress/templates/caddy-override.conf.j2"
+        dest: "{{ caddy_override_output }}"
+        mode: "0600"

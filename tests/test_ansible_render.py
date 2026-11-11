@@ -152,3 +152,22 @@ class IngressRenderTests(unittest.TestCase):
             )
             initial = json.loads(output.read_text())
         self.assertEqual(initial, caddy_configuration("/run/caddy/admin.sock", []))
+
+    def test_caddy_unit_drop_in_runs_the_custom_binary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "vps-platform.conf"
+            run_playbook(
+                str(ROOT / "tests/playbooks/render-caddy-override.yml"),
+                "-e",
+                f"caddy_override_output={output}",
+            )
+            drop_in = output.read_text()
+        self.assertIn(
+            "ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/vps-platform.json",
+            drop_in,
+        )
+        self.assertIn(
+            "ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/vps-platform.json "
+            "--address unix//run/caddy/admin.sock --force",
+            drop_in,
+        )
