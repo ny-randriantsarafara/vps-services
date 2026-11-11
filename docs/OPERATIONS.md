@@ -169,7 +169,7 @@ Lowering `vps_preview_limit` below the current preview count blocks creation wit
 
 ## 10. Caddy
 
-The ingress role keeps the official `caddy` Debian package installed and held for the `caddy` user, unit and directories. It runs a custom build at `/usr/local/bin/caddy` (Caddy `2.11.7` with caddy-l4 `0.1.2`). Build it on the operator machine with `scripts/build-caddy.sh` or `make caddy`; `make plan` and `make platform` build it first. CI runs the same script on `ubuntu-latest`. The SHA-256 is pinned in the ingress role defaults; change a pin only after reproducible builds agree.
+The ingress role keeps the official `caddy` Debian package installed and held for the `caddy` user, unit and directories. It runs a custom build at `/usr/local/bin/caddy` (Caddy `2.11.7` with caddy-l4 `0.1.2`). Build it on the operator machine with `scripts/build-caddy.sh` or `make caddy` inside the pinned `golang:1.26.11-bookworm` container; `make plan` and `make platform` build it first. CI runs the same script on `ubuntu-latest`. The SHA-256 is pinned in the ingress role defaults; change a pin only after reproducible builds agree.
 
 `platform.yml` stages the binary, verifies the checksum, promotes it, then renders the systemd drop-in and restarts Caddy. A failed checksum or a missing build artifact blocks the restart. The swap restarts every site on the VPS.
 

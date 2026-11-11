@@ -2,12 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CADDY_VERSION="2.11.7"
-CADDY_L4_VERSION="0.1.2"
 XCADDY_VERSION="v0.4.7"
-GO_IMAGE="golang:1.26.0-bookworm@sha256:4f7e5f23bfacf4c2934ba70c132532742b6a53f01a4209e2c2eb7bd06c16f0bc"
-ARTIFACT_BASENAME="caddy-${CADDY_VERSION}-l4-${CADDY_L4_VERSION}-linux-amd64"
-ARTIFACT="dist/${ARTIFACT_BASENAME}"
+GO_IMAGE="golang:1.26.11-bookworm@sha256:79ecd0a7157c7a4cf3b281ced8465350591bf54fedab540e75374a003e1fde7e"
 DEFAULTS="collections/ansible_collections/ny/vps/roles/ingress/defaults/main.yml"
 
 if [[ ! -f "$DEFAULTS" ]]; then
@@ -15,11 +11,22 @@ if [[ ! -f "$DEFAULTS" ]]; then
   exit 1
 fi
 
-expected="$(grep -E '^ingress_caddy_sha256:' "$DEFAULTS" | sed -E 's/^ingress_caddy_sha256:[[:space:]]*"([^"]+)".*/\1/')"
-if [[ -z "$expected" || "$expected" == ingress_caddy_sha256:* ]]; then
-  echo "ingress_caddy_sha256 is missing or invalid in $DEFAULTS" >&2
-  exit 1
-fi
+read_default() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}:" "$DEFAULTS" | sed -E 's/^[^:]+:[[:space:]]*"([^"]+)".*/\1/')"
+  if [[ -z "$value" || "$value" == "${key}:"* ]]; then
+    echo "Missing or invalid ${key} in $DEFAULTS" >&2
+    exit 1
+  fi
+  printf '%s' "$value"
+}
+
+CADDY_VERSION="$(read_default ingress_caddy_version)"
+CADDY_L4_VERSION="$(read_default ingress_caddy_l4_version)"
+expected="$(read_default ingress_caddy_sha256)"
+ARTIFACT_BASENAME="caddy-${CADDY_VERSION}-l4-${CADDY_L4_VERSION}-linux-amd64"
+ARTIFACT="dist/${ARTIFACT_BASENAME}"
 
 mkdir -p dist
 rm -f "$ARTIFACT"

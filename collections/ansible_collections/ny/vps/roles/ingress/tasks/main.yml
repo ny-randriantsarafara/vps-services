@@ -75,38 +75,54 @@
 - name: Install the custom Caddy binary
   when: not ansible_check_mode
   block:
-    - name: Require the built Caddy binary on the controller
-      ansible.builtin.assert:
-        that:
-          - ingress_caddy_controller_artifact_state.stat.exists
-          - ingress_caddy_controller_artifact_state.stat.isreg
-        fail_msg: Run make caddy or scripts/build-caddy.sh on the controller before apply.
-
-    - name: Stage the custom Caddy binary
-      ansible.builtin.copy:
-        src: "{{ ingress_caddy_controller_artifact }}"
-        dest: "{{ ingress_caddy_binary }}.new"
-        mode: "0755"
-        owner: root
-        group: root
-
-    - name: Verify the staged Caddy binary
+    - name: Read the installed Caddy binary checksum
       ansible.builtin.stat:
-        path: "{{ ingress_caddy_binary }}.new"
+        path: "{{ ingress_caddy_binary }}"
         checksum_algorithm: sha256
         get_checksum: true
-      register: ingress_caddy_staged
+      register: ingress_caddy_installed
+      failed_when: false
 
-    - name: Refuse a Caddy binary with the wrong checksum
-      ansible.builtin.assert:
-        that:
-          - ingress_caddy_staged.stat.checksum == ingress_caddy_sha256
-        fail_msg: The staged Caddy binary checksum does not match ingress_caddy_sha256.
+    - name: Stage and promote a new custom Caddy binary
+      when: ingress_caddy_installed.stat.checksum | default('') != ingress_caddy_sha256
+      block:
+        - name: Require the built Caddy binary on the controller
+          ansible.builtin.assert:
+            that:
+              - ingress_caddy_controller_artifact_state.stat.exists
+              - ingress_caddy_controller_artifact_state.stat.isreg
+            fail_msg: Run make caddy or scripts/build-caddy.sh on the controller before apply.
 
-    - name: Promote the staged Caddy binary
-      ansible.builtin.command:
-        argv: [mv, -f, "{{ ingress_caddy_binary }}.new", "{{ ingress_caddy_binary }}"]
-      changed_when: true
+        - name: Stage the custom Caddy binary
+          ansible.builtin.copy:
+            src: "{{ ingress_caddy_controller_artifact }}"
+            dest: "{{ ingress_caddy_binary }}.new"
+            mode: "0755"
+            owner: root
+            group: root
+
+        - name: Verify the staged Caddy binary
+          ansible.builtin.stat:
+            path: "{{ ingress_caddy_binary }}.new"
+            checksum_algorithm: sha256
+            get_checksum: true
+          register: ingress_caddy_staged
+
+        - name: Refuse a Caddy binary with the wrong checksum
+          ansible.builtin.assert:
+            that:
+              - ingress_caddy_staged.stat.checksum == ingress_caddy_sha256
+            fail_msg: The staged Caddy binary checksum does not match ingress_caddy_sha256.
+
+        - name: Promote the staged Caddy binary
+          ansible.builtin.copy:
+            src: "{{ ingress_caddy_binary }}.new"
+            dest: "{{ ingress_caddy_binary }}"
+            remote_src: true
+            mode: "0755"
+            owner: root
+            group: root
+          notify: Restart Caddy
 
 - name: Create the Caddy unit drop-in directory
   ansible.builtin.file:
@@ -135,19 +151,38 @@
 - name: Apply the Caddy unit changes
   ansible.builtin.meta: flush_handlers
 
-- name: Read the running Caddy version
+- name: Read the Caddy service main PID
   ansible.builtin.command:
-    argv: ["{{ ingress_caddy_binary }}", version]
-  register: ingress_running_version
+    argv: [systemctl, show, -p, MainPID, --value, caddy]
+  register: ingress_caddy_main_pid
   changed_when: false
   when: not ansible_check_mode
 
-- name: List Caddy modules
+- name: Read the running Caddy executable link
+  ansible.builtin.stat:
+    path: "/proc/{{ ingress_caddy_main_pid.stdout | trim }}/exe"
+  register: ingress_caddy_running_exe
+  when:
+    - not ansible_check_mode
+    - (ingress_caddy_main_pid.stdout | trim) != '0'
+
+- name: Read the running Caddy version
   ansible.builtin.command:
-    argv: ["{{ ingress_caddy_binary }}", list-modules]
+    argv: ["/proc/{{ ingress_caddy_main_pid.stdout | trim }}/exe", version]
+  register: ingress_running_version
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - (ingress_caddy_main_pid.stdout | trim) != '0'
+
+- name: List Caddy modules in the running process
+  ansible.builtin.command:
+    argv: ["/proc/{{ ingress_caddy_main_pid.stdout | trim }}/exe", list-modules]
   register: ingress_caddy_modules
   changed_when: false
-  when: not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - (ingress_caddy_main_pid.stdout | trim) != '0'
 
 - name: Read the admin socket
   ansible.builtin.stat:
@@ -158,6 +193,8 @@
 - name: Confirm the pinned Caddy runs with caddy-l4 and a private admin socket
   ansible.builtin.assert:
     that:
+      - (ingress_caddy_main_pid.stdout | trim) != '0'
+      - ingress_caddy_running_exe.stat.lnk_target == ingress_caddy_binary
       - ingress_running_version.stdout is ansible.builtin.search('^v' ~ (ingress_caddy_version | regex_escape) ~ '\\b')
       - ingress_caddy_modules.stdout is search('caddy\\.listeners\\.layer4')
       - ingress_caddy_modules.stdout is search('layer4\\.handlers\\.tls')
