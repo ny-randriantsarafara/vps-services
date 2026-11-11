@@ -13,11 +13,17 @@ from vps_platform.policy import Policy
 from vps_platform.state import atomic_json
 
 try:
-    from vps_platform.runtime import Runtime, RuntimeFailure, available_memory_mib
+    from vps_platform.runtime import (
+        Runtime,
+        RuntimeFailure,
+        available_memory_mib,
+        caddy_configuration,
+    )
 except ImportError:
     Runtime = None
     RuntimeFailure = RuntimeError
     available_memory_mib = None
+    caddy_configuration = None
 
 STORAGE_BUDGET_GIB = 2
 
@@ -524,6 +530,62 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.public_probe = lambda route: not route["hostname"].startswith("cms.")
         result = self.runtime.apply("alpha-pr-1", self.path, routes, STORAGE_BUDGET_GIB)
         self.assertEqual(result["http_status"], "unreachable")
+
+    def test_caddy_configuration_without_rtmps_is_unchanged(self):
+        route = {
+            "hostname": "alpha-pr-1.apps.example.net",
+            "service": "web",
+            "port": 3000,
+            "upstream": "127.0.0.1:20000",
+            "application": "alpha",
+            "environment": "preview",
+        }
+        config = caddy_configuration("/run/caddy/admin.sock", [route])
+        self.assertNotIn("tls", config["apps"])
+        self.assertNotIn("listener_wrappers", config["apps"]["http"]["servers"]["platform"])
+
+    def test_caddy_configuration_adds_layer4_and_tls_automation_for_rtmps(self):
+        https_route = {
+            "hostname": "alpha-pr-1.apps.example.net",
+            "upstream": "127.0.0.1:20000",
+            "application": "alpha",
+            "environment": "preview",
+        }
+        rtmps_route = {
+            "hostname": "ingest.example.test",
+            "upstream": "127.0.0.1:20007",
+            "protocol": "rtmps",
+        }
+        config = caddy_configuration("/run/caddy/admin.sock", [https_route, rtmps_route])
+        platform = config["apps"]["http"]["servers"]["platform"]
+        self.assertEqual(
+            platform["listener_wrappers"],
+            [
+                {
+                    "wrapper": "layer4",
+                    "routes": [
+                        {
+                            "match": [{"tls": {"sni": ["ingest.example.test"]}}],
+                            "handle": [
+                                {"handler": "tls"},
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [{"dial": ["127.0.0.1:20007"]}],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {"wrapper": "tls"},
+            ],
+        )
+        self.assertEqual(config["apps"]["tls"]["certificates"]["automate"], ["ingest.example.test"])
+        hosts = [
+            item["match"][0]["host"][0]
+            for item in platform["routes"]
+            if item.get("match") and "host" in item["match"][0]
+        ]
+        self.assertNotIn("ingest.example.test", hosts)
 
     def test_loopback_http_readiness_failure_never_publishes_routes(self):
         self.policy.data["domain"] = "apps.example.net"

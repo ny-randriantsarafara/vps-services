@@ -7,6 +7,7 @@ controller_modules:
   - controller.py
   - policy.py
   - runtime.py
+  - rtmp.py
   - state.py
 controller_private_directories:
   - /var/lib/vps-platform
@@ -31,6 +32,7 @@ controller_policy:
   budgets: "{{ controller_budgets }}"
   preview_instance_budget: "{{ controller_preview_instance_budget }}"
   instance_hostnames: "{{ controller_instance_hostnames | default({}) }}"
+  instance_rtmps_hostnames: "{{ controller_instance_rtmps_hostnames | default({}) }}"
   onboarding_guards: "{{ controller_onboarding_guards | default({}) }}"
   instance_private_paths: "{{ controller_instance_private_paths | default({}) }}"
   backup_commands: "{{ controller_backup_commands | default({}) }}"

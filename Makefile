@@ -66,5 +66,8 @@ observability: ## Configure only Alloy after credential preflight, no Docker/Cad
 http-metrics-check: ## Real local Caddy traffic -> sanitized source -> Alloy status/latency metrics
 	VPS_HTTP_INTEGRATION=1 $(VENV)/bin/python -m unittest discover -s tests/integration -p test_http_metrics.py -v
 
+rtmps-ingress-check: caddy ## Pinned caddy-l4: HTTPS, RTMPS SNI, neutral 404, plain TCP (local Docker)
+	VPS_RTMPS_INTEGRATION=1 $(VENV)/bin/python -m unittest discover -s tests/integration -p test_rtmps_ingress.py -v
+
 monitoring-rules-check: ## Official promtool alert behavior tests (local Docker, no network)
 	docker run --rm --network none --entrypoint=/bin/promtool -v "$(CURDIR)/observability:/repo/observability:ro" -v "$(CURDIR)/tests/observability:/repo/tests/observability:ro" -w /repo/tests/observability prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2 test rules alerts.test.yml

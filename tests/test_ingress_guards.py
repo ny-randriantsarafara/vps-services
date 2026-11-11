@@ -10,6 +10,17 @@ from vps_platform.runtime import Runtime, caddy_configuration
 
 
 class GuardTests(unittest.TestCase):
+    def test_hostname_cannot_appear_in_both_ingress_maps(self):
+        with self.assertRaises(Refused):
+            Policy(
+                {
+                    **policy(Path("/tmp/vps")),
+                    "domain": "apps.example.test",
+                    "instance_hostnames": {"alpha-prod": ["ingest.apps.example.test"]},
+                    "instance_rtmps_hostnames": {"alpha-prod": ["ingest.apps.example.test"]},
+                }
+            )
+
     def test_private_paths_precede_all_instance_routes_without_blocking_other_apps(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

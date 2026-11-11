@@ -74,6 +74,15 @@ Same-generation protocol-v1 retries accept the exact legacy fingerprint with onl
 | Containers | `cap_drop: ALL`, `no-new-privileges`, CPU/memory/swap/PID limits, no privilege or host namespace |
 | Ports | `127.0.0.1:<leased port>` only, range 20000–29999 assigned by the controller |
 | HTTP | Primary name derived from the instance and names one label below (`cms.<instance>…`); unknown route: neutral 404 |
+| RTMPS | Administrator-granted hostname on `:443` only; Caddy matches TLS SNI in a layer4 listener wrapper, terminates TLS, proxies plain RTMP to the leased loopback port |
+
+```text
+Client --TLS SNI ingest.example--> Caddy :443
+  layer4 wrapper: SNI matches RTMPS route --> TLS terminate --> proxy --> 127.0.0.1:<leased> --> container RTMP
+  any other connection --> existing HTTPS server (unchanged)
+```
+
+Nothing new is published on the internet: RTMPS uses the same `:443` listener and loopback ports as HTTPS routes.
 
 Caddy serves applications on `:443` only. Port 80 stays for automatic HTTPS: ACME challenges and redirect to HTTPS. No application is served in cleartext.
 
