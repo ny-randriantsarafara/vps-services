@@ -19,3 +19,5 @@ controller_instance_private_paths: {}
 controller_backup_commands: {}
 
 controller_maximum_total_memory_mib: 6144
+# Keep equal to vps_caddy_binary, ingress_caddy_binary, and vps_platform/policy.py caddy_binary.
+controller_caddy_binary: "{{ vps_caddy_binary | default('/usr/local/bin/caddy') }}"

@@ -25,7 +25,6 @@ CURL_IMAGE = (
 DEBIAN_IMAGE = "debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
 
 RTMP_FIXTURE = """
-import os
 import socket
 import struct
 COUNTER = "/tmp/rtmp-connections"
@@ -157,6 +156,23 @@ class RtmpsIngressIntegrationTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 folder = Path(tmp)
                 (folder / "config.json").write_text(json.dumps(config))
+                docker(
+                    [
+                        "run",
+                        "--rm",
+                        "--platform",
+                        "linux/amd64",
+                        "-v",
+                        f"{folder}:/test:ro",
+                        "-v",
+                        f"{CADDY_BINARY}:/usr/local/bin/caddy:ro",
+                        DEBIAN_IMAGE,
+                        "/usr/local/bin/caddy",
+                        "validate",
+                        "--config",
+                        "/test/config.json",
+                    ]
+                )
                 docker(
                     [
                         "run",

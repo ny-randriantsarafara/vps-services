@@ -17,6 +17,9 @@ vps_admin_public_keys:
 # Instance domain: wildcard DNS *.apps.nyhasinavalona.com to the VPS (docs/OPERATIONS.md).
 vps_domain: apps.nyhasinavalona.com
 
+# Custom Caddy build with caddy-l4. The ingress role installs it; vpsctl validates configs with it.
+vps_caddy_binary: /usr/local/bin/caddy
+
 # Global cap, all applications combined.
 vps_preview_limit: 1
 # 5,824 MiB production + one 1,024 MiB preview. Host checked 10/11/2026:

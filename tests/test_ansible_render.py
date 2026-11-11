@@ -141,6 +141,7 @@ class ControllerPolicyRenderTests(unittest.TestCase):
         self.assertEqual(
             data["backup_commands"], {"exemple-prod": ["/usr/local/lib/exemple/backup"]}
         )
+        self.assertEqual(data["caddy_binary"], "/usr/local/bin/caddy")
 
 
 class IngressRenderTests(unittest.TestCase):

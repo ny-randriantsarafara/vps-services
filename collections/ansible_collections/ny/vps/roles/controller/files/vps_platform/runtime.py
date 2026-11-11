@@ -751,7 +751,10 @@ class Runtime:
         previous = read_previous_configuration(path)
         try:
             replace_json(candidate, config, 0o600)
-            self._run(["/usr/bin/caddy", "validate", "--config", str(candidate)], timeout=30)
+            self._run(
+                [self.policy["caddy_binary"], "validate", "--config", str(candidate)],
+                timeout=30,
+            )
             self.caddy_loader(config)  # Caddy /load switches its configuration atomically.
             self._persist_configuration(path, config, previous)
         finally:

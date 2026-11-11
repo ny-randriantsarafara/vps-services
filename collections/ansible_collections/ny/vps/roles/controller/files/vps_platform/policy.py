@@ -42,6 +42,8 @@ DEFAULTS = {
     "minimum_free_inode_ratio": 0.05,
     "caddy_config": "/etc/caddy/vps-platform.json",
     "caddy_admin_socket": "/run/caddy/admin.sock",
+    # Keep equal to ingress_caddy_binary (ingress role defaults) and controller_caddy_binary.
+    "caddy_binary": "/usr/local/bin/caddy",
 }
 NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 INSTANCE_SUFFIX = re.compile(r"-(?:prod|staging|pr-[0-9]+)\Z")
@@ -88,7 +90,7 @@ class Policy:
                 raise Refused("invalid host policy")
         if not 1024 <= self.data["port_start"] <= self.data["port_end"] <= 65535:
             raise Refused("invalid host port range")
-        for path in ("apps_dir", "caddy_config", "caddy_admin_socket"):
+        for path in ("apps_dir", "caddy_config", "caddy_admin_socket", "caddy_binary"):
             if not isinstance(self.data[path], str) or not Path(self.data[path]).is_absolute():
                 raise Refused("host paths must be absolute")
         domain = self.data["domain"]

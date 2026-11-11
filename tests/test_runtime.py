@@ -168,7 +168,7 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.caddy_loader = load
 
         def validate(argv, **kwargs):
-            if argv[:2] == ["/usr/bin/caddy", "validate"]:
+            if argv[:2] == [self.policy.data["caddy_binary"], "validate"]:
                 # Real validation opens log outputs as root on the VPS. The
                 # service-owned file must already exist before that boundary.
                 log = directory / "vps-http.json"
@@ -536,6 +536,7 @@ class RuntimeTests(unittest.TestCase):
         return json.dumps(config, separators=(",", ":"), allow_nan=False).encode()
 
     def test_https_only_caddy_configuration_matches_b2c8644_goldens(self):
+        """Golden JSON in fixtures/caddy_configuration/ matches HTTPS-only output at git b2c8644."""
         cases = {
             "multi_routes.json": (
                 "/run/caddy/admin.sock",
@@ -568,6 +569,39 @@ class RuntimeTests(unittest.TestCase):
                 expected = (FIXTURES / fixture).read_bytes().rstrip(b"\n")
                 config = caddy_configuration(*arguments)
                 self.assertEqual(self._caddy_bytes(config), expected)
+
+    def test_publish_validates_with_the_policy_caddy_binary_including_rtmps(self):
+        custom = self.root / "caddy-l4"
+        custom.write_text("# stub\n", encoding="utf-8")
+        custom.chmod(0o755)
+        self.policy.data["caddy_binary"] = str(custom)
+        self.policy.data["domain"] = "apps.example.net"
+        ingest = "ingest.apps.example.net"
+        self.policy.data["instance_rtmps_hostnames"] = {"alpha-pr-1": [ingest]}
+        validated = []
+
+        def runner(argv, **kwargs):
+            if len(argv) >= 2 and argv[1] == "validate":
+                validated.append(list(argv))
+                config = json.loads(Path(argv[3]).read_text())
+                wrappers = config["apps"]["http"]["servers"]["platform"].get(
+                    "listener_wrappers", []
+                )
+                self.assertTrue(wrappers and wrappers[0]["wrapper"] == "layer4")
+            return self.docker(argv, **kwargs)
+
+        self.runtime.runner = runner
+        payload = request()
+        relay = copy.deepcopy(payload["compose"]["services"]["web"])
+        payload["compose"]["services"]["relay"] = relay
+        payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        _, _, routes = normalize(payload, self.policy, "alpha-pr-1", {})
+        self.runtime.refresh_ingress(routes)
+        self.assertEqual(len(validated), 1)
+        self.assertEqual(validated[0][0], str(custom))
+        self.assertEqual(validated[0][1], "validate")
 
     def test_caddy_configuration_adds_layer4_and_tls_automation_for_rtmps(self):
         https_route = {
