@@ -30,7 +30,9 @@ argument_specs:
         description: Jinja template for the application Compose, for apply and plan.
         type: path
       app_routes:
-        description: HTTP routes, each with hostname, service, and port.
+        description: >-
+          Public routes, each with hostname, service, and port. Optional protocol is https
+          (default) or rtmps on an administrator-granted RTMPS hostname.
         type: list
         elements: dict
         default: []

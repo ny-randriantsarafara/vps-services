@@ -46,6 +46,9 @@
     mode: "0440"
     validate: /usr/sbin/visudo -cf %s
 
+- name: Confirm the pinned Caddy binary exists before policy changes
+  ansible.builtin.import_tasks: caddy_binary.yml
+
 - name: Write the admission policy
   ansible.builtin.copy:
     content: "{{ controller_policy | to_nice_json }}\n"

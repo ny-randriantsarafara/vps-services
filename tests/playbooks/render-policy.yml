@@ -25,6 +25,7 @@
         application: exemple
         environments: [prod]
         public_keys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnlyKeyNotUsedAnywhere1111111111 prod@exemple"]
+    controller_caddy_binary: /usr/local/bin/caddy
   tasks:
     - name: Load the controller role variables
       ansible.builtin.include_vars:

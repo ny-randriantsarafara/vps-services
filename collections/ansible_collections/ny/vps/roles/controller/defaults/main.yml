@@ -12,9 +12,12 @@ controller_budgets:
 controller_preview_instance_budget: {cpus: 0.5, memory_mib: 1024}
 # Administrator-owned exact hostname grants and private onboarding policies.
 controller_instance_hostnames: {}
+controller_instance_rtmps_hostnames: {}
 controller_onboarding_guards: {}
 controller_instance_private_paths: {}
 # Exact instance -> fixed administrator-owned executable argv.
 controller_backup_commands: {}
 
 controller_maximum_total_memory_mib: 6144
+# Keep equal to vps_caddy_binary, ingress_caddy_binary, and vps_platform/policy.py caddy_binary.
+controller_caddy_binary: "{{ vps_caddy_binary | default('/usr/local/bin/caddy') }}"

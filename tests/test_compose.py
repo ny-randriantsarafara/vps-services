@@ -177,11 +177,11 @@ class ComposeTests(unittest.TestCase):
             ({"hostname": hostname}, "invalid routes"),
             (
                 [{"hostname": hostname, "service": "web", "port": "3000"}],
-                "route must target an HTTP service port",
+                "route must target a service port",
             ),
             (
                 [{"hostname": hostname, "service": ["web"], "port": 3000}],
-                "route must target an HTTP service port",
+                "route must target a service port",
             ),
         ]:
             with self.subTest(reason=reason):
@@ -290,6 +290,76 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(compose["services"]["web"]["depends_on"], services["web"]["depends_on"])
         self.assertEqual(compose["services"]["seed"]["restart"], "no")
         self.assertEqual(budget, {"cpus": 0.6, "memory_mib": 1152})
+
+    def test_rtmps_routes_require_policy_and_reject_https_on_rtmps_names(self):
+        self.policy.data["domain"] = "apps.example.net"
+        ingest = "ingest.apps.example.net"
+        self.policy.data["instance_rtmps_hostnames"] = {"alpha-pr-1": [ingest]}
+        relay = copy.deepcopy(self.payload["compose"]["services"]["web"])
+        relay["healthcheck"]["test"] = ["CMD", "/rtmp-health"]
+        self.payload["compose"]["services"]["relay"] = relay
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        _, _, routes = self.render()
+        self.assertEqual(routes[0]["protocol"], "rtmps")
+        self.assertEqual(routes[0]["upstream"], "127.0.0.1:20000")
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935},
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is reserved for RTMPS")
+        self.policy.data["instance_rtmps_hostnames"] = {}
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
+        self.payload["routes"] = [
+            {
+                "hostname": "alpha-pr-1.apps.example.net",
+                "service": "web",
+                "port": 3000,
+                "protocol": "rtmps",
+            }
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "quic"}
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "unknown route protocol")
+
+    def test_rtmps_hostname_cannot_be_claimed_by_another_instance(self):
+        self.policy.data["domain"] = "apps.example.net"
+        ingest = "ingest.apps.example.net"
+        self.policy.data["instance_rtmps_hostnames"] = {"alpha-prod": [ingest]}
+        relay = copy.deepcopy(self.payload["compose"]["services"]["web"])
+        self.payload["compose"]["services"]["relay"] = relay
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
+
+    def test_rtmps_route_for_another_instances_hostname_is_refused(self):
+        self.policy.data["domain"] = "apps.example.net"
+        ingest = "ingest.apps.example.net"
+        self.policy.data["instance_rtmps_hostnames"] = {"beta-prod": [ingest]}
+        relay = copy.deepcopy(self.payload["compose"]["services"]["web"])
+        self.payload["compose"]["services"]["relay"] = relay
+        self.payload["routes"] = [
+            {"hostname": ingest, "service": "relay", "port": 1935, "protocol": "rtmps"}
+        ]
+        with self.assertRaises(Refused) as caught:
+            self.render()
+        self.assertEqual(str(caught.exception), "route hostname is not authorized for RTMPS")
 
     def test_service_logs_are_bounded_and_swap_cannot_be_unlimited(self):
         compose, _, _ = self.render()

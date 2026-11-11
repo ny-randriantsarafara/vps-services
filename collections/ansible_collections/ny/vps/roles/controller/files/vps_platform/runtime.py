@@ -17,8 +17,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, stop_grace_seconds
+from .compose import INIT_PROFILE, LABEL_PREFIX, memory_mib, route_protocol, stop_grace_seconds
 from .policy import Policy
+from .rtmp import loopback_rtmp_handshake, public_rtmps_handshake
 from .state import BACKUP_LOCK_FD, replace_json
 
 MEMINFO = Path("/proc/meminfo")
@@ -105,10 +106,12 @@ def request_logging(routes):
 def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
     guards = guards or {}
     private_paths = private_paths or {}
-    logging, access = request_logging(routes)
+    https_routes = [route for route in routes if route_protocol(route) == "https"]
+    rtmps_routes = [route for route in routes if route_protocol(route) == "rtmps"]
+    logging, access = request_logging(https_routes)
     handlers = []
     denied = {"handler": "static_response", "status_code": 403, "body": "private setup required"}
-    for route in routes:
+    for route in https_routes:
         hostname = route["hostname"]
         if private_paths.get(hostname):
             handlers.append(
@@ -131,22 +134,42 @@ def caddy_configuration(admin_socket, routes, guards=None, private_paths=None):
             handler = denied
         handlers.append({"match": [{"host": [hostname]}], "handle": [handler], "terminal": True})
     neutral = {"handle": [{"handler": "static_response", "status_code": 404}], "terminal": True}
+    platform = {
+        "listen": [":443"],
+        **({"logs": access} if access else {}),
+        "routes": [*handlers, neutral],
+    }
+    if rtmps_routes:
+        platform["listener_wrappers"] = [
+            {
+                "wrapper": "layer4",
+                "routes": [
+                    {
+                        "match": [{"tls": {"sni": [route["hostname"]]}}],
+                        "handle": [
+                            {"handler": "tls"},
+                            {
+                                "handler": "proxy",
+                                "upstreams": [{"dial": [route["upstream"]]}],
+                            },
+                        ],
+                    }
+                    for route in rtmps_routes
+                ],
+            },
+            {"wrapper": "tls"},
+        ]
     # Port 80 stays with Caddy's automatic HTTPS: ACME challenges and redirects only.
+    apps = {
+        "http": {"metrics": {}, "servers": {"platform": platform}},
+    }
+    if rtmps_routes:
+        automate = sorted({route["hostname"] for route in rtmps_routes})
+        apps["tls"] = {"certificates": {"automate": automate}}
     return {
         **({"logging": logging} if logging else {}),
         "admin": {"listen": "unix/" + admin_socket},
-        "apps": {
-            "http": {
-                "metrics": {},
-                "servers": {
-                    "platform": {
-                        "listen": [":443"],
-                        **({"logs": access} if access else {}),
-                        "routes": [*handlers, neutral],
-                    }
-                },
-            }
-        },
+        "apps": apps,
     }
 
 
@@ -346,7 +369,7 @@ class Runtime:
             self._remove_retired_containers(resources, compose["services"])
             own_routes = self._own_routes(instance, routes)
             if not all(self.http_probe(route) for route in own_routes):
-                raise RuntimeFailure("loopback HTTP readiness failed")
+                raise RuntimeFailure("loopback readiness failed")
             self._publish(routes)
             return {"local_health": "ready", "http_status": self._public_status(own_routes)}
         except RuntimeFailure:
@@ -728,7 +751,10 @@ class Runtime:
         previous = read_previous_configuration(path)
         try:
             replace_json(candidate, config, 0o600)
-            self._run(["/usr/bin/caddy", "validate", "--config", str(candidate)], timeout=30)
+            self._run(
+                [self.policy["caddy_binary"], "validate", "--config", str(candidate)],
+                timeout=30,
+            )
             self.caddy_loader(config)  # Caddy /load switches its configuration atomically.
             self._persist_configuration(path, config, previous)
         finally:
@@ -774,12 +800,18 @@ class Runtime:
             connection.close()
 
     def _loopback_probe(self, route):
+        if route_protocol(route) == "rtmps":
+            return loopback_rtmp_handshake(route["upstream"])
         request = urllib.request.Request(
             "http://" + route["upstream"] + "/", headers={"Host": route["hostname"]}
         )
         return self._probe(request)
 
     def _public_probe(self, route):
+        if route_protocol(route) == "rtmps":
+            if not self.policy["domain"]:
+                return False
+            return public_rtmps_handshake(route["hostname"])
         # Normal certificate verification: public reachability includes DNS and TLS.
         return self._probe(urllib.request.Request("https://" + route["hostname"] + "/"))
 

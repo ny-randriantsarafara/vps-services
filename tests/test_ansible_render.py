@@ -141,6 +141,7 @@ class ControllerPolicyRenderTests(unittest.TestCase):
         self.assertEqual(
             data["backup_commands"], {"exemple-prod": ["/usr/local/lib/exemple/backup"]}
         )
+        self.assertEqual(data["caddy_binary"], "/usr/local/bin/caddy")
 
 
 class IngressRenderTests(unittest.TestCase):
@@ -152,3 +153,54 @@ class IngressRenderTests(unittest.TestCase):
             )
             initial = json.loads(output.read_text())
         self.assertEqual(initial, caddy_configuration("/run/caddy/admin.sock", []))
+
+    def test_caddy_unit_drop_in_runs_the_custom_binary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "vps-platform.conf"
+            run_playbook(
+                str(ROOT / "tests/playbooks/render-caddy-override.yml"),
+                "-e",
+                f"caddy_override_output={output}",
+            )
+            drop_in = output.read_text()
+        self.assertIn(
+            "ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/vps-platform.json",
+            drop_in,
+        )
+        self.assertIn(
+            "ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/vps-platform.json "
+            "--address unix//run/caddy/admin.sock --force",
+            drop_in,
+        )
+
+
+class ControllerCaddyGateTests(unittest.TestCase):
+    PLAYBOOK = str(ROOT / "tests/playbooks/verify-controller-caddy-gate.yml")
+
+    def run_gate(self, *arguments):
+        return subprocess.run(
+            [str(ANSIBLE_PLAYBOOK), self.PLAYBOOK, *arguments],
+            cwd=ROOT,
+            env={**os.environ, "ANSIBLE_CONFIG": str(ROOT / "ansible.cfg"), "ANSIBLE_NOCOLOR": "1"},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_missing_pinned_caddy_fails_before_policy_on_apply(self):
+        completed = self.run_gate("-e", "controller_caddy_binary=/no/such/caddy")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("Run make platform on this host first", completed.stdout)
+
+    def test_missing_pinned_caddy_warns_but_continues_in_check_mode(self):
+        completed = self.run_gate("--check", "-e", "controller_caddy_binary=/no/such/caddy")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("not installed yet", completed.stdout)
+
+    def test_executable_binary_passes_the_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "caddy"
+            binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            binary.chmod(0o755)
+            completed = self.run_gate("-e", f"controller_caddy_binary={binary}")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)

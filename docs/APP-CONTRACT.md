@@ -105,7 +105,9 @@ app_routes:
   - {hostname: api.exemple-pr-42.apps.example.net, service: api, port: 8080}
 ```
 
-`port` is the container port. The controller leases a `127.0.0.1` port per route in 20000–29999, keeps it across updates, and never shares it. All instance routes must respond on loopback before publication; `http_status` is `ready` when all respond publicly, HTTPS only.
+`port` is the container port. The controller leases a `127.0.0.1` port per route in 20000–29999, keeps it across updates, and never shares it. A route may set `protocol` to `rtmps` only when its hostname is listed in the administrator policy `instance_rtmps_hostnames` for that instance. Such a name cannot carry an HTTPS route. Without `protocol`, behavior stays HTTPS as today.
+
+All instance routes must respond on loopback before publication. HTTPS routes are probed with HTTP; RTMPS routes send an RTMP client handshake (C0 and C1) and expect S0 byte `0x03`. The public probe for RTMPS uses TLS on port 443 with certificate verification, then the same handshake. `http_status` is `ready` when every route responds publicly.
 
 ## Generations
 
@@ -192,6 +194,8 @@ The application inventory verifies the server host key (`StrictHostKeyChecking=y
 ### Extra names, onboarding, and graceful stop
 
 Root policy `instance_hostnames` maps an exact instance to a list of extra DNS names. An application cannot change this list or take a name owned by another instance. Historical names and prefixes remain accepted.
+
+Root policy `instance_rtmps_hostnames` grants exact hostnames for RTMPS on port 443 only. A name cannot appear in both maps or under two instances. It is rendered from inventory `vps_instance_rtmps_hostnames`.
 
 Root policy `instance_private_paths` maps an exact instance to private URL paths, for example `vaultwarden-prod: ["/admin", "/admin/*"]`. Caddy returns HTTP 403 for these paths on every hostname owned by the instance, including its standard names and aliases. The remaining paths use the normal proxy. Applications cannot change this policy through a delivery request.
 

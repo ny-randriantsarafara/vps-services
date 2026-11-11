@@ -1,5 +1,11 @@
 # Changelog for `ny.vps`
 
+## 1.5.0
+
+- Caddy runs a pinned build with caddy-l4; the ingress role stages it, verifies its checksum, and restarts Caddy.
+- Administrator policy `instance_rtmps_hostnames` grants exact hostnames for RTMPS on port 443 only.
+- A route may set `protocol` to `rtmps` on those names; the controller terminates TLS and proxies plain RTMP to the leased loopback port.
+
 ## 1.3.1
 
 - The onboarding guard also opens when Home Assistant has finished all steps: it no longer serves `/api/onboarding` and returns the exact 404 `404: Not Found`. Any other 404 stays closed.

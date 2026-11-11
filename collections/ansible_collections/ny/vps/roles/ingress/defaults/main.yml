@@ -1,6 +1,11 @@
 ---
 # Version read from dl.cloudsmith.io/public/caddy/stable (any-version) on 2026-10-11.
 ingress_caddy_version: "2.11.7"
+# Rebuild with scripts/build-caddy.sh (or make caddy) after changing Caddy or caddy-l4 pins.
+ingress_caddy_l4_version: "0.1.2"
+ingress_caddy_binary: "{{ vps_caddy_binary | default('/usr/local/bin/caddy') }}"
+ingress_caddy_sha256: "340b83efb14717b6052b7a4256303024dec227d9c77971e36e0db3dec3810b28"
+ingress_caddy_controller_artifact: "{{ playbook_dir }}/../dist/caddy-{{ ingress_caddy_version }}-l4-{{ ingress_caddy_l4_version }}-linux-amd64"
 # vpsctl reads the same paths from its defaults (vps_platform/policy.py).
 ingress_config_path: /etc/caddy/vps-platform.json
 ingress_admin_socket: /run/caddy/admin.sock

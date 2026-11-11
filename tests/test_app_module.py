@@ -60,6 +60,20 @@ class DeployInstanceModuleTests(unittest.TestCase):
         self.assertIs(result["changed"], False)
         self.assertNotIn("failed", result)
 
+    def test_apply_passes_route_dicts_unchanged(self):
+        vpsctl = FakeVpsctl(answer("ready", changed=True))
+        parameters = params()
+        parameters["routes"] = [
+            {
+                "hostname": "ingest.example.com",
+                "service": "relay",
+                "port": 1935,
+                "protocol": "rtmps",
+            }
+        ]
+        deploy_instance.run(parameters, False, vpsctl)
+        self.assertEqual(vpsctl.sent[0]["routes"], parameters["routes"])
+
     def test_apply_sends_the_complete_version_one_request(self):
         vpsctl = FakeVpsctl(answer("ready", True, local_health="ready", http_status="unconfigured"))
         result = deploy_instance.run(params(), False, vpsctl)

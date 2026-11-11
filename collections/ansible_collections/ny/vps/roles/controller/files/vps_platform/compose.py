@@ -32,6 +32,7 @@ PLATFORM_EXTENSIONS = ("x-vps-init", "x-vps-required-environment")
 HEALTHCHECK_FIELDS = {"test", "interval", "timeout", "start_period", "retries"}
 MOUNT_FIELDS = {"type", "source", "target", "read_only"}
 ROUTE_FIELDS = {"hostname", "service", "port"}
+ROUTE_PROTOCOLS = {"https", "rtmps"}
 ROUTE_PREFIX = re.compile(r"[a-z][a-z0-9]{0,31}\Z")
 RESTART_POLICIES = ("no", "on-failure", "unless-stopped")
 DEPENDENCY_CONDITIONS = ("service_healthy", "service_completed_successfully")
@@ -375,13 +376,42 @@ def allocate_routes(routes, policy, instance, existing, services):
     return allocated
 
 
+def route_protocol(route):
+    return route.get("protocol", "https")
+
+
+def reserved_rtmps_hostnames(policy):
+    return {
+        hostname
+        for hostnames in policy["instance_rtmps_hostnames"].values()
+        for hostname in hostnames
+    }
+
+
 def require_instance_route(route, policy, instance, services, allocated):
-    if (
-        not isinstance(route, dict)
-        or set(route) != ROUTE_FIELDS
-        or not policy.owns_hostname(route["hostname"], instance)
-        or any(item["hostname"] == route["hostname"] for item in allocated)
-    ):
+    if not isinstance(route, dict):
+        raise Refused("invalid routes")
+    fields = set(route)
+    protocol = route_protocol(route)
+    if protocol not in ROUTE_PROTOCOLS:
+        raise Refused("unknown route protocol")
+    if protocol == "https":
+        if fields != ROUTE_FIELDS:
+            raise Refused("invalid routes")
+    elif fields != ROUTE_FIELDS | {"protocol"}:
+        raise Refused("invalid routes")
+    hostname = route["hostname"]
+    if not isinstance(hostname, str):
+        raise Refused("route hostname must belong to this instance namespace")
+    reserved_rtmps = reserved_rtmps_hostnames(policy)
+    if protocol == "rtmps":
+        if not policy.rtmps_hostname(hostname, instance):
+            raise Refused("route hostname is not authorized for RTMPS")
+    elif hostname in reserved_rtmps:
+        raise Refused("route hostname is reserved for RTMPS")
+    elif not policy.owns_hostname(hostname, instance):
+        raise Refused("route hostname must belong to this instance namespace")
+    if any(item["hostname"] == hostname for item in allocated):
         raise Refused("route hostname must belong to this instance namespace")
     if (
         not isinstance(route["service"], str)
@@ -390,7 +420,7 @@ def require_instance_route(route, policy, instance, services, allocated):
         or type(route["port"]) is not int
         or not 1 <= route["port"] <= 65535
     ):
-        raise Refused("route must target an HTTP service port")
+        raise Refused("route must target a service port")
 
 
 def reused_port(previous, route):

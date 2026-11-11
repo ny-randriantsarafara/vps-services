@@ -1,0 +1,9 @@
+---
+- name: Exercise the controller Caddy binary gate
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run the controller Caddy binary gate
+      ansible.builtin.import_tasks: >-
+        {{ playbook_dir }}/../../collections/ansible_collections/ny/vps/roles/controller/tasks/caddy_binary.yml

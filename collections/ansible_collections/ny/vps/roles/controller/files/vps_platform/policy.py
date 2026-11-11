@@ -15,6 +15,7 @@ class Refused(ValueError):
 DEFAULTS = {
     "accounts": {},
     "instance_hostnames": {},
+    "instance_rtmps_hostnames": {},
     "onboarding_guards": {},
     "instance_private_paths": {},
     "backup_commands": {},
@@ -41,6 +42,8 @@ DEFAULTS = {
     "minimum_free_inode_ratio": 0.05,
     "caddy_config": "/etc/caddy/vps-platform.json",
     "caddy_admin_socket": "/run/caddy/admin.sock",
+    # Keep equal to ingress_caddy_binary (ingress role defaults) and controller_caddy_binary.
+    "caddy_binary": "/usr/local/bin/caddy",
 }
 NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 INSTANCE_SUFFIX = re.compile(r"-(?:prod|staging|pr-[0-9]+)\Z")
@@ -87,7 +90,7 @@ class Policy:
                 raise Refused("invalid host policy")
         if not 1024 <= self.data["port_start"] <= self.data["port_end"] <= 65535:
             raise Refused("invalid host port range")
-        for path in ("apps_dir", "caddy_config", "caddy_admin_socket"):
+        for path in ("apps_dir", "caddy_config", "caddy_admin_socket", "caddy_binary"):
             if not isinstance(self.data[path], str) or not Path(self.data[path]).is_absolute():
                 raise Refused("host paths must be absolute")
         domain = self.data["domain"]
@@ -134,8 +137,13 @@ class Policy:
         from .compose import is_instance_hostname
 
         aliases = self["instance_hostnames"]
+        rtmps_aliases = self["instance_rtmps_hostnames"]
         guards = self["onboarding_guards"]
-        if not isinstance(aliases, dict) or not isinstance(guards, dict):
+        if (
+            not isinstance(aliases, dict)
+            or not isinstance(rtmps_aliases, dict)
+            or not isinstance(guards, dict)
+        ):
             raise Refused("invalid host ingress policy")
         applications = {account["application"] for account in self["accounts"].values()}
         owners = {}
@@ -153,6 +161,21 @@ class Policy:
             for hostname in hostnames:
                 if not valid_hostname(hostname) or hostname in owners:
                     raise Refused("invalid or colliding instance hostname")
+                owners[hostname] = instance
+        for instance, hostnames in rtmps_aliases.items():
+            if (
+                not isinstance(instance, str)
+                or not re.fullmatch(r"[a-z][a-z0-9-]*-(?:prod|staging|pr-[1-9][0-9]*)", instance)
+                or not isinstance(hostnames, list)
+            ):
+                raise Refused("invalid instance RTMPS hostname policy")
+            application = re.sub(r"-(?:prod|staging|pr-[1-9][0-9]*)$", "", instance)
+            if not is_application_name(application):
+                raise Refused("invalid instance RTMPS hostname policy")
+            applications.add(application)
+            for hostname in hostnames:
+                if not valid_hostname(hostname) or hostname in owners:
+                    raise Refused("invalid or colliding instance RTMPS hostname")
                 owners[hostname] = instance
         for hostname, owner in owners.items():
             for application in applications:
@@ -225,9 +248,14 @@ class Policy:
     def owns_hostname(self, hostname, instance):
         from .compose import is_instance_hostname
 
-        return is_instance_hostname(hostname, instance, self["domain"]) or hostname in self[
-            "instance_hostnames"
-        ].get(instance, [])
+        return (
+            is_instance_hostname(hostname, instance, self["domain"])
+            or hostname in self["instance_hostnames"].get(instance, [])
+            or hostname in self["instance_rtmps_hostnames"].get(instance, [])
+        )
+
+    def rtmps_hostname(self, hostname, instance):
+        return hostname in self["instance_rtmps_hostnames"].get(instance, [])
 
     def __getitem__(self, key):
         return self.data[key]

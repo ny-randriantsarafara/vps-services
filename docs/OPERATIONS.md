@@ -67,7 +67,7 @@ Automatic OVH backup stays enabled. Do not restore it to fix access: it can rein
 
 ## 5. Platform
 
-To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
+To update only controller code, admission policy and its maintenance/backup timers on an existing host, use `make controller TARGET=vps-d9d9aca9`. It does not reapply SSH, Docker, Caddy installation or firewall provisioning. The first time the policy names the pinned Caddy at `/usr/local/bin/caddy`, run `make platform` (not `make controller` alone) so ingress installs that binary before `vpsctl` validates configs. Refresh ingress after a policy change with `sudo vpsctl ingress refresh`.
 
 ```bash
 make plan TARGET=vps-d9d9aca9       # --check --diff simulation
@@ -168,6 +168,16 @@ Other keys keep controller defaults (`vps_platform/policy.py`):
 Lowering `vps_preview_limit` below the current preview count blocks creation without removing any. Raising it does not increase CPU, memory, or disk.
 
 ## 10. Caddy
+
+The ingress role keeps the official `caddy` Debian package installed and held for the `caddy` user, unit and directories. It runs a custom build at `/usr/local/bin/caddy` (Caddy `2.11.7` with caddy-l4 `0.1.2`). Build it on the operator machine with `scripts/build-caddy.sh` or `make caddy` inside the pinned `golang:1.26.11-bookworm` container; `make plan` and `make platform` build it first. CI runs the same script on `ubuntu-latest`. The SHA-256 is pinned in the ingress role defaults; change a pin only after reproducible builds agree.
+
+`platform.yml` stages the binary, verifies the checksum, promotes it, then renders the systemd drop-in and restarts Caddy. A failed checksum or a missing build artifact blocks the restart. The swap restarts every site on the VPS.
+
+`make plan` checks the controller build artifact and its checksum, but it does not copy or verify the remote binary. Only a real apply installs `/usr/local/bin/caddy` and runs the running-process assertions.
+
+To roll back to the packaged binary without caddy-l4, edit `/etc/systemd/system/caddy.service.d/vps-platform.conf` so `ExecStart` and `ExecReload` use `/usr/bin/caddy` again, then run `sudo systemctl daemon-reload && sudo systemctl restart caddy`. That emergency change lasts only until the next ingress apply: `make platform` re-renders the drop-in and reinstalls `/usr/local/bin/caddy`. While rolled back, do not run `make platform` until the cause is fixed, or restore the pin and rebuild. HTTPS sites keep working on `/usr/bin/caddy`; RTMPS publishing breaks because the controller validates configs with the caddy-l4 binary and refuses `listener_wrappers`. Re-apply the ingress role to restore the custom binary when ready.
+
+Run `make platform` before any application delivers an RTMPS route. That pass installs the caddy-l4 binary and restarts Caddy for every site. A delivery with `protocol: rtmps` against a controller that does not support RTMPS is refused.
 
 - Applications are served on `:443` only. Port 80 stays for Caddy automatic HTTPS: ACME challenges and 308 redirect to HTTPS.
 - Instance domain: `apps.nyhasinavalona.com`. Cloudflare DNS carries `*.apps` as A and AAAA to the VPS, **without proxy**: Caddy obtains its own certificate per name on first route load. The wildcard also covers secondary names (`cms.<instance>.apps…`).

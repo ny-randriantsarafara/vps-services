@@ -20,7 +20,7 @@ ansible-playbook (ny.vps.app)                          sudo -n /usr/local/sbin/v
 | SSH | `ny.vps.ssh` | Drop-in validated with `sshd -t`: no root, keys only, no interactive authentication |
 | Firewall | `ny.vps.firewall` | `vps-firewall.service`: `VPS-INPUT` and `DOCKER-USER` chains, IPv4 and IPv6, ports 22/80/443 |
 | Docker | `ny.vps.docker` | Docker Engine 29.9.3, Compose 5.7.0, signed APT repo, `json-file` rotation 10 MiB × 3 |
-| Ingress | `ny.vps.ingress` | Caddy 2.11.7, administration via `/run/caddy/admin.sock`, config `/etc/caddy/vps-platform.json` |
+| Ingress | `ny.vps.ingress` | Caddy 2.11.7 with caddy-l4 v0.1.2 (`/usr/local/bin/caddy`, SHA-256 pinned), APT package held for the unit; administration via `/run/caddy/admin.sock`, config `/etc/caddy/vps-platform.json` |
 | Controller | `ny.vps.controller` | `vpsctl`, policy `/etc/vps-platform/policy.json`, deploy accounts, maintenance timer |
 | Observability (opt-in) | `ny.vps.observability` | Official Alloy 1.21.3, private credentials, loopback diagnostics, bounded best-effort telemetry to personal Grafana Cloud |
 | Application | `ny.vps.app` | Used by application repos; not run in `platform.yml` |
@@ -74,6 +74,19 @@ Same-generation protocol-v1 retries accept the exact legacy fingerprint with onl
 | Containers | `cap_drop: ALL`, `no-new-privileges`, CPU/memory/swap/PID limits, no privilege or host namespace |
 | Ports | `127.0.0.1:<leased port>` only, range 20000–29999 assigned by the controller |
 | HTTP | Primary name derived from the instance and names one label below (`cms.<instance>…`); unknown route: neutral 404 |
+| RTMPS | Administrator-granted hostname on `:443` only; Caddy matches TLS SNI in a layer4 listener wrapper, terminates TLS, proxies plain RTMP to the leased loopback port |
+
+```text
+Client --TLS SNI ingest.example--> Caddy :443
+  layer4 wrapper: SNI matches RTMPS route --> TLS terminate --> proxy --> 127.0.0.1:<leased> --> container RTMP
+  any other connection --> existing HTTPS server (unchanged)
+```
+
+Nothing new is published on the internet: RTMPS uses the same `:443` listener and loopback ports as HTTPS routes.
+
+The layer4 wrapper only accepts TLS when the client SNI is an RTMPS route name. Every other connection on port 443, including ACME TLS-ALPN for existing HTTPS names, goes to the normal HTTPS stack. Plain HTTP on port 80 is unchanged.
+
+Caddy issues certificates for RTMPS names like other managed names. HTTP-01 on port 80 still works because Caddy answers ACME HTTP challenges before application routes, and the platform keeps port 80 for automatic HTTPS. TLS-ALPN-01 on 443 works for an RTMPS SNI because the layer4 TLS handler uses Caddy's TLS connection policies, which advertise `acme-tls/1` during handshake.
 
 Caddy serves applications on `:443` only. Port 80 stays for automatic HTTPS: ACME challenges and redirect to HTTPS. No application is served in cleartext.
 
